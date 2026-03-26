@@ -1,3 +1,5 @@
+# medium.py
+
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -102,6 +104,10 @@ TASK_INFO = {
     "difficulty":    "medium",
     "indicators":    ["ma5", "ma10"],
     "grader":        "score = 0.5 * profit_score + 0.5 * trade_efficiency",
+    "action_schema": {
+        "action": "BUY | SELL | HOLD",
+        "quantity": "float (units to trade, 0.0 for HOLD)"
+    }
 }
 
 

@@ -13,7 +13,7 @@ from env.tasks.medium import TASK_INFO as MEDIUM_INFO
 from env.tasks.hard import TASK_INFO as HARD_INFO
 
 # ------------------------------------------------------------------ #
-#  Router + shared environment state                                   #
+#  Router + shared environment state                                 #
 # ------------------------------------------------------------------ #
 
 router = APIRouter()
@@ -33,7 +33,7 @@ def _get_env(task: str) -> TradingEnv:
 
 
 # ------------------------------------------------------------------ #
-#  Request / Response schemas                                          #
+#  Request / Response schemas                                        #
 # ------------------------------------------------------------------ #
 
 class ResetRequest(BaseModel):
@@ -55,7 +55,7 @@ class BaselineRequest(BaseModel):
 
 
 # ------------------------------------------------------------------ #
-#  GET /tasks  — list all tasks                                        #
+#  GET /tasks  — list all tasks                                      #
 # ------------------------------------------------------------------ #
 
 @router.get("/tasks")
@@ -67,7 +67,7 @@ def list_tasks():
 
 
 # ------------------------------------------------------------------ #
-#  POST /reset  — reset environment                                    #
+#  POST /reset  — reset environment                                  #
 # ------------------------------------------------------------------ #
 
 @router.post("/reset")
@@ -91,7 +91,7 @@ def reset_env(req: ResetRequest):
 
 
 # ------------------------------------------------------------------ #
-#  GET /state  — current state snapshot                                #
+#  GET /state  — current state snapshot                              #
 # ------------------------------------------------------------------ #
 
 @router.get("/state")
@@ -105,7 +105,7 @@ def get_state(task: str = "easy"):
 
 
 # ------------------------------------------------------------------ #
-#  POST /step  — take one action                                       #
+#  POST /step  — take one action                                     #
 # ------------------------------------------------------------------ #
 
 @router.post("/step")
@@ -139,7 +139,7 @@ def take_step(req: StepRequest):
 
 
 # ------------------------------------------------------------------ #
-#  POST /grader  — final score                                         #
+#  POST /grader  — final score                                       #
 # ------------------------------------------------------------------ #
 
 @router.post("/grader")
@@ -160,7 +160,7 @@ def grade_episode(req: GraderRequest):
 
 
 # ------------------------------------------------------------------ #
-#  POST /baseline  — run rule-based baseline agent                     #
+#  POST /baseline  — run rule-based baseline agent                   #
 # ------------------------------------------------------------------ #
 
 @router.post("/baseline")
@@ -170,6 +170,9 @@ def run_baseline(req: BaselineRequest):
     If task is None, runs all three tasks and returns all scores.
     """
     from baseline import run_baseline_agent
+
+    if req.task and req.task not in ("easy", "medium", "hard"):
+        raise HTTPException(status_code=400, detail=f"Invalid task '{req.task}'")
 
     tasks_to_run = ("easy", "medium", "hard") if req.task is None else (req.task,)
     results      = {}

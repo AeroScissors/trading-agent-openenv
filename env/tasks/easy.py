@@ -1,3 +1,5 @@
+# easy.py
+
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -54,6 +56,10 @@ TASK_INFO = {
     "ticker":       "AAPL",
     "difficulty":   "easy",
     "grader":       "score = min(1.0, profit / 500)",
+    "action_schema": {
+        "action": "BUY | SELL | HOLD",
+        "quantity": "float (units to trade, 0.0 for HOLD)"
+    }
 }
 
 
