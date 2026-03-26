@@ -1,0 +1,1 @@
+from env.graders.grader import grade, grade_all

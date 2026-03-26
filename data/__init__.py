@@ -1,0 +1,1 @@
+from data.fetch_data import fetch_prices

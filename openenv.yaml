@@ -1,0 +1,172 @@
+name: trading-agent-openenv
+version: "1.0.0"
+description: >
+  An OpenEnv-compatible reinforcement learning environment for trading agents.
+  Supports three tasks of increasing difficulty using real market data
+  (AAPL, MSFT, BTC-USD) with synthetic fallback.
+
+author: Trading Agent OpenEnv
+license: MIT
+
+# ------------------------------------------------------------------ #
+#  Tasks                                                               #
+# ------------------------------------------------------------------ #
+
+tasks:
+  - id: easy
+    name: Follow the Trend
+    description: >
+      Simple uptrending stock (AAPL, 1 year).
+      Buy early, hold through the trend, sell near the peak.
+    ticker: AAPL
+    difficulty: easy
+    initial_cash: 10000.0
+    profit_target: 500.0
+    grader: score = min(1.0, profit / 500)
+
+  - id: medium
+    name: React to Signals
+    description: >
+      Sideways-to-moderate trend stock (MSFT, 1 year).
+      MA5 and MA10 indicators provided in state.
+      Use crossover signals to time entries and exits.
+    ticker: MSFT
+    difficulty: medium
+    initial_cash: 10000.0
+    profit_target: 800.0
+    indicators: [ma5, ma10]
+    grader: score = 0.5 * profit_score + 0.5 * trade_efficiency
+
+  - id: hard
+    name: Maximize Profit with Risk
+    description: >
+      Highly volatile asset (BTC-USD, 1 year).
+      Transaction costs and drawdown penalties active.
+      Maximize Sharpe ratio, not just raw profit.
+    ticker: BTC-USD
+    difficulty: hard
+    initial_cash: 10000.0
+    profit_target: 2000.0
+    sharpe_target: 1.5
+    penalties: [transaction_costs, drawdown_penalty]
+    grader: score = 0.5 * sharpe_score + 0.5 * profit_score
+
+# ------------------------------------------------------------------ #
+#  State Space                                                         #
+# ------------------------------------------------------------------ #
+
+state_space:
+  price_history:
+    type: array
+    length: 20
+    description: Last 20 closing prices
+  current_price:
+    type: float
+    description: Current asset price
+  position:
+    type: float
+    description: Number of units currently held
+  cash:
+    type: float
+    description: Available cash in USD
+  ma5:
+    type: float
+    description: 5-period moving average of closing price
+  ma10:
+    type: float
+    description: 10-period moving average of closing price
+  sharpe:
+    type: float
+    description: Rolling annualised Sharpe ratio
+  step:
+    type: int
+    description: Current timestep index
+
+# ------------------------------------------------------------------ #
+#  Action Space                                                        #
+# ------------------------------------------------------------------ #
+
+action_space:
+  action:
+    type: string
+    values: [BUY, SELL, HOLD]
+    description: Trading action to execute
+  quantity:
+    type: float
+    min: 0.0
+    description: Number of units to trade (0.0 for HOLD)
+
+# ------------------------------------------------------------------ #
+#  Reward                                                              #
+# ------------------------------------------------------------------ #
+
+reward:
+  formula: profit_change - risk_penalty - trade_cost
+  components:
+    profit_change:
+      description: Change in total portfolio value this step
+    risk_penalty:
+      description: Penalty when drawdown exceeds 5% threshold
+      threshold: 0.05
+    trade_cost:
+      description: 0.1% fee applied on every BUY or SELL
+      rate: 0.001
+
+# ------------------------------------------------------------------ #
+#  Grader                                                              #
+# ------------------------------------------------------------------ #
+
+grader:
+  endpoint: POST /grader
+  output: float [0.0, 1.0]
+  description: >
+    Returns a single score between 0.0 and 1.0.
+    Combines profit score and Sharpe ratio depending on task.
+
+# ------------------------------------------------------------------ #
+#  Baseline                                                            #
+# ------------------------------------------------------------------ #
+
+baseline:
+  endpoint: POST /baseline
+  strategy: MA5/MA10 crossover (rule-based, no API key required)
+  description: >
+    Buy when MA5 crosses above MA10, sell when MA5 crosses below MA10.
+    Can be used to verify environment correctness instantly.
+
+# ------------------------------------------------------------------ #
+#  API Endpoints                                                       #
+# ------------------------------------------------------------------ #
+
+api:
+  base_url: http://localhost:7860
+  endpoints:
+    - method: GET
+      path: /tasks
+      description: List all tasks with metadata
+    - method: POST
+      path: /reset
+      description: Reset environment, returns initial state
+    - method: GET
+      path: /state
+      description: Get current state snapshot
+    - method: POST
+      path: /step
+      description: Execute one action, returns obs/reward/done/info
+    - method: POST
+      path: /grader
+      description: Return final score (0.0 to 1.0)
+    - method: POST
+      path: /baseline
+      description: Run baseline agent, return scores
+
+# ------------------------------------------------------------------ #
+#  Runtime                                                             #
+# ------------------------------------------------------------------ #
+
+runtime:
+  port: 7860
+  framework: FastAPI
+  python: "3.11"
+  docker: true
+  huggingface_spaces: true
