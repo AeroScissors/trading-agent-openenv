@@ -1,3 +1,17 @@
+---
+title: Trading Agent OpenEnv
+emoji: 📈
+colorFrom: green
+colorTo: blue
+sdk: docker
+sdk_version: "3.11"
+python_version: "3.11"
+app_file: main.py
+pinned: false
+tags:
+  - openenv
+---
+
 # Trading Agent OpenEnv
 
 A complete [OpenEnv](https://openenv.ai)-compatible reinforcement learning environment for training and evaluating trading agents on real market data. Agents learn to buy, sell, and hold assets across three tasks of increasing difficulty — from simple trend-following on AAPL to risk-adjusted trading on volatile BTC-USD.
