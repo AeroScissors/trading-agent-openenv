@@ -8,3 +8,5 @@ dist/
 build/
 .DS_Store
 Project structure.txt
+data/*.csv
+data/*.json
