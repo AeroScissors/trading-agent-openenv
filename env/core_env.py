@@ -7,7 +7,7 @@ from env.models import State, Action, StepResult
 from env.reward import compute_reward
 
 # ------------------------------------------------------------------ #
-#  Core Trading Environment                                            #
+#  Core Trading Environment                                          #
 # ------------------------------------------------------------------ #
 
 SUPPORTED_TASKS  = ("easy", "medium", "hard")
@@ -38,7 +38,7 @@ class TradingEnv:
         self._load_task_data()
 
     # ---------------------------------------------------------------- #
-    #  Internal helpers                                                  #
+    #  Internal helpers                                                #
     # ---------------------------------------------------------------- #
 
     def _load_task_data(self):
@@ -97,7 +97,7 @@ class TradingEnv:
         )
 
     # ---------------------------------------------------------------- #
-    #  Public API                                                        #
+    #  Public API                                                      #
     # ---------------------------------------------------------------- #
 
     def reset(self) -> State:
@@ -131,7 +131,12 @@ class TradingEnv:
             StepResult with observation, reward, done, info
         """
         if self.current_step >= self.max_steps:
-            raise RuntimeError("Episode is done. Call reset() to start a new episode.")
+            return StepResult(
+                observation=self._build_state(),
+                reward=0.0,
+                done=True,
+                info={"msg": "Episode already finished"}
+            )
 
         current_price  = self.prices[self.current_step]
         prev_portfolio = self._portfolio_value()
@@ -164,7 +169,7 @@ class TradingEnv:
 
         # ---- Advance timestep -------------------------------------- #
         self.current_step += 1
-        current_portfolio  = self._portfolio_value()
+        current_portfolio  = max(self._portfolio_value(), 0.0)
 
         # Update peak for drawdown calculation
         if current_portfolio > self.peak_portfolio:
@@ -190,6 +195,7 @@ class TradingEnv:
             "step":            self.current_step,
             "max_steps":       self.max_steps,
             "trade":           trade_info,
+            "return_pct":      (current_portfolio - INITIAL_CASH) / INITIAL_CASH,
             **reward_info,
         }
 
@@ -220,7 +226,7 @@ class TradingEnv:
 
 
 # ------------------------------------------------------------------ #
-#  Quick smoke test                                                    #
+#  Quick smoke test                                                  #
 # ------------------------------------------------------------------ #
 if __name__ == "__main__":
     for task in SUPPORTED_TASKS:

@@ -1,21 +1,21 @@
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 
 
 class State(BaseModel):
     price_history: List[float]
     current_price: float
-    position: float        # number of shares/units held
-    cash: float            # available cash
-    ma5: float             # 5-period moving average
-    ma10: float            # 10-period moving average
-    sharpe: float          # rolling Sharpe ratio
-    step: int              # current timestep
+    position: float
+    cash: float
+    ma5: float
+    ma10: float
+    sharpe: float
+    step: int
 
 
 class Action(BaseModel):
-    action: str            # "BUY", "SELL", or "HOLD"
-    quantity: float        # number of units to trade (0.0 for HOLD)
+    action: str
+    quantity: float
 
 
 class StepResult(BaseModel):

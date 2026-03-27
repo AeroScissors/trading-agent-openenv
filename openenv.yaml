@@ -101,16 +101,11 @@ action_space:
 # ------------------------------------------------------------------ #
 
 reward:
-  formula: profit_change - risk_penalty - trade_cost
-  components:
-    profit_change:
-      description: Change in total portfolio value this step
-    risk_penalty:
-      description: Penalty when drawdown exceeds 5% threshold
-      threshold: 0.05
-    trade_cost:
-      description: 0.1% fee applied on every BUY or SELL
-      rate: 0.001
+  formula: profit_pct + consistency_bonus - risk_penalty - trade_cost - overtrade_penalty
+  description: >
+    Reward is based on percentage profit change with penalties for drawdown,
+    trading costs, and overtrading. Includes bonus for consistent gains.
+    Reward is normalized and clamped between -1 and 1.
 
 # ------------------------------------------------------------------ #
 #  Grader                                                              #
