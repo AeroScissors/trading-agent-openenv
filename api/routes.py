@@ -5,6 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+from fastapi.responses import FileResponse
 
 from env.core_env import TradingEnv
 from env.models import Action
@@ -17,6 +18,10 @@ from env.tasks.hard import TASK_INFO as HARD_INFO
 # ------------------------------------------------------------------ #
 
 router = APIRouter()
+
+@router.get("/")
+def serve_dashboard():
+    return FileResponse("frontend/index.html")
 
 # One environment instance per session (stateful)
 _envs: dict[str, TradingEnv] = {}

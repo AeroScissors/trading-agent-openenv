@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Trading-Agent-OpenEnv</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.3/cdn.min.js" defer></script>
+</head>
+<body>
+  <div class="dash" x-data="dashboard()" x-init="init()">
+
+    <div class="header">
+      <div>
+        <div class="logo">Trading-Agent-OpenEnv</div>
+        <div class="sublogo">AeroScissors · Hugging Face Spaces</div>
+      </div>
+      <div class="status-wrap">
+        <span class="dot" :class="apiOnline ? 'dot-green' : 'dot-red'"></span>
+        <span class="status-text" x-text="apiOnline ? 'API ONLINE' : 'API OFFLINE'"></span>
+      </div>
+    </div>
+
+    <div class="score-row">
+      <template x-for="t in tasks" :key="t.id">
+        <div class="score-card" :class="t.id">
+          <div class="task-label" x-text="t.label"></div>
+          <div class="score-val" x-text="t.score !== null ? t.score.toFixed(4) : '—'"></div>
+          <div class="meta-row">
+            <span class="profit" x-text="t.profit !== null ? '+$' + t.profit.toLocaleString() : '—'"></span>
+            <span x-text="t.steps !== null ? t.steps + ' steps' : '—'"></span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div class="chart-section">
+      <div class="chart-header">
+        <div class="chart-title">Episode Replay</div>
+        <div class="task-tabs">
+          <template x-for="t in tasks" :key="t.id">
+            <button
+              class="tab"
+              :class="[t.id + '-tab', activeTask === t.id ? 'active' : '']"
+              @click="switchTask(t.id)"
+              x-text="t.id.toUpperCase()"
+            ></button>
+          </template>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="priceChart"></canvas>
+      </div>
+      <div class="legend">
+        <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div>BUY</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div>SELL</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#a78bfa"></div>Price</div>
+      </div>
+    </div>
+
+    <div class="bottom-row">
+      <div class="avg-card">
+        <div class="avg-label">Average Score</div>
+        <div class="avg-val" x-text="avgScore !== null ? avgScore.toFixed(4) : '—'"></div>
+        <div class="avg-sub">across 3 tasks · last run</div>
+        <div style="margin-top:14px">
+          <template x-for="t in tasks" :key="t.id">
+            <div style="margin-bottom:10px">
+              <div class="bar-label">
+                <span x-text="t.id.toUpperCase()"></span>
+                <span :style="'color:' + t.color" x-text="t.score !== null ? t.score.toFixed(2) : '—'"></span>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill" :style="'width:' + (t.score !== null ? t.score * 100 : 0) + '%;background:' + t.color"></div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="feed">
+        <div class="feed-title" x-text="'Action Log · ' + activeTask.toUpperCase()"></div>
+        <div class="feed-list">
+          <template x-if="actionLog.length === 0">
+            <div class="feed-empty">No actions yet. Run the agent.</div>
+          </template>
+          
+          <template x-for="(item, i) in actionLog" :key="i">
+            <div class="feed-item" :class="'act-' + item.action.toLowerCase() + '-row'">
+              <span class="feed-step" x-text="'step ' + item.step"></span>
+              <span class="feed-action" :class="'act-' + item.action.toLowerCase()" x-text="item.action"></span>
+              <span class="feed-reward"
+                :style="'color:' + (item.reward >= 0 ? '#22c55e' : '#ef4444')"
+                x-text="(item.reward >= 0 ? '+' : '') + item.reward.toFixed(4)">
+              </span>
+            </div>
+          </template>
+          
+        </div>
+
+        <div class="run-controls">
+          <select x-model="activeTask" class="task-select" :disabled="running">
+            <option value="easy">EASY — AAPL</option>
+            <option value="medium">MEDIUM — MSFT</option>
+            <option value="hard">HARD — BTC-USD</option>
+          </select>
+          <button class="run-btn" @click="runAgent()" :disabled="running">
+            <span x-text="running ? 'RUNNING...' : 'RUN AGENT'"></span>
+          </button>
+        </div>
+
+        <div class="progress-wrap" x-show="running">
+          <div class="progress-bar" :style="'width:' + progress + '%'"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
