@@ -6,6 +6,9 @@
   <title>Trading-Agent-OpenEnv</title>
   <link rel="stylesheet" href="/static/style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <!-- hammer.js required by chartjs-plugin-zoom for touch/drag support -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.3/cdn.min.js" defer></script>
 </head>
 <body>
@@ -38,6 +41,9 @@
     <div class="chart-section">
       <div class="chart-header">
         <div class="chart-title">Episode Replay</div>
+        <div class="chart-hint" style="font-size:10px;color:#3a3a5a;font-family:monospace;align-self:center;">
+          scroll to zoom · drag to pan · double-click to reset
+        </div>
         <div class="task-tabs">
           <template x-for="t in tasks" :key="t.id">
             <button

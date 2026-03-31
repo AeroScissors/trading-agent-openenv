@@ -22,26 +22,37 @@ function resetAgentState() {
   agentState.death_cnt   = 0;
 }
 
+// ── per-task memory store ─────────────────────────────────────────────────────
+const taskMemory = {
+  easy:   { labels: [], prices: [], buys: [], sells: [], actionLog: [] },
+  medium: { labels: [], prices: [], buys: [], sells: [], actionLog: [] },
+  hard:   { labels: [], prices: [], buys: [], sells: [], actionLog: [] },
+};
+
+function clearMemory(taskId) {
+  taskMemory[taskId] = { labels: [], prices: [], buys: [], sells: [], actionLog: [] };
+}
+
+// ── chart ─────────────────────────────────────────────────────────────────────
 let _chart = null;
 
 function destroyChart() {
-  const existing = Chart.getChart('priceChart');
-  if (existing) { existing.destroy(); }
-  _chart = null;
+  if (_chart) { _chart.destroy(); _chart = null; }
 }
 
-function createChart(color) {
+function createChart(color, memory) {
   destroyChart();
   const ctx = document.getElementById('priceChart');
   if (!ctx) return null;
+
   _chart = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: [],
+      labels: memory ? [...memory.labels] : [],
       datasets: [
         {
           label: 'price',
-          data: [],
+          data: memory ? [...memory.prices] : [],
           borderColor: color,
           borderWidth: 1.5,
           pointRadius: 0,
@@ -50,7 +61,7 @@ function createChart(color) {
         },
         {
           label: 'buy',
-          data: [],
+          data: memory ? [...memory.buys] : [],
           type: 'scatter',
           pointRadius: 8,
           pointStyle: 'triangle',
@@ -60,7 +71,7 @@ function createChart(color) {
         },
         {
           label: 'sell',
-          data: [],
+          data: memory ? [...memory.sells] : [],
           type: 'scatter',
           pointRadius: 8,
           pointStyle: 'rectRot',
@@ -74,7 +85,21 @@ function createChart(color) {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        zoom: {
+          pan: {
+            enabled: true,
+            mode: 'x',
+            cursor: 'grab',
+          },
+          zoom: {
+            wheel: { enabled: true, speed: 0.1 },
+            pinch: { enabled: true },
+            mode: 'x',
+          },
+        },
+      },
       scales: {
         x: {
           ticks: { color: '#5a5a7a', font: { size: 10 }, maxTicksLimit: 8 },
@@ -92,14 +117,13 @@ function createChart(color) {
   return _chart;
 }
 
+// ── agent logic ───────────────────────────────────────────────────────────────
 function getAction(task, step, state, maxSteps) {
-  // MEDIUM: pure buy-and-hold, one clean trade → efficiency = 1.0
   if (task === 'medium') {
     const cash     = state?.cash ?? 0;
     const position = state?.position ?? 0;
-    
-    if (step === 1)              return { action: 'BUY',  quantity: Math.round((cash * 0.90) / (state?.current_price ?? 1) * 10000) / 10000 };
-    if (step >= maxSteps - 1)   return { action: 'SELL', quantity: Math.round(position * 10000) / 10000 };
+    if (step === 1)             return { action: 'BUY',  quantity: Math.round((cash * 0.90) / (state?.current_price ?? 1) * 10000) / 10000 };
+    if (step === maxSteps - 1)  return { action: 'SELL', quantity: Math.round(position * 10000) / 10000 };  // exact step only, no double SELL
     return { action: 'HOLD', quantity: 0.0 };
   }
 
@@ -147,7 +171,6 @@ function getAction(task, step, state, maxSteps) {
 
   if (position > 0) {
     const entry = agentState.entry_price;
-
     if (entry > 0 && price > entry * strategy.take_profit)   return sell();
     if (entry > 0 && price < entry * strategy.stop_loss_pct) return sell();
     if (sharpe < 0.3 && entry > 0 && price < entry * 0.95)  return sell();
@@ -159,13 +182,13 @@ function getAction(task, step, state, maxSteps) {
     }
 
     if (agentState.death_cnt >= 3) return sell();
-
     if (strategy.sell_end && step >= maxSteps - 1) return sell();
   }
 
   return { action: 'HOLD', quantity: 0.0 };
 }
 
+// ── alpine component ──────────────────────────────────────────────────────────
 function dashboard() {
   return {
     apiOnline: false,
@@ -193,31 +216,35 @@ function dashboard() {
         this.apiOnline = false;
       }
       const t = this.getTask(this.activeTask);
-      createChart(t.color);
+      createChart(t.color, taskMemory[this.activeTask]);
     },
 
     switchTask(id) {
       if (this.running) return;
       this.activeTask = id;
-      this.actionLog = [];
+      this.actionLog = [...taskMemory[id].actionLog];
       const t = this.getTask(id);
-      createChart(t.color);
+      createChart(t.color, taskMemory[id]);
     },
 
     async runAgent() {
       if (this.running) return;
       this.running  = true;
       this.progress = 0;
-      this.actionLog = [];
 
-      const taskId   = this.activeTask;
-      const t        = this.getTask(taskId);
+      const taskId = this.activeTask;
+      const t      = this.getTask(taskId);
       t.score  = null;
       t.profit = null;
       t.steps  = null;
 
-      const chart = createChart(t.color);
-      
+      clearMemory(taskId);
+      this.actionLog = [];
+      taskMemory[taskId].actionLog = [];
+
+      const mem   = taskMemory[taskId];
+      const chart = createChart(t.color, mem);
+
       resetAgentState();
 
       try {
@@ -253,26 +280,36 @@ function dashboard() {
           const price  = state.current_price ?? 0;
           const reward = result.reward ?? 0;
 
-          // update chart
+          // update chart + memory
           chart.data.labels.push(step);
+          mem.labels.push(step);
+
           chart.data.datasets[0].data.push(price);
+          mem.prices.push(price);
 
           if (act.action === 'BUY') {
             chart.data.datasets[1].data.push({ x: step, y: price });
+            mem.buys.push({ x: step, y: price });
           } else if (act.action === 'SELL') {
             chart.data.datasets[2].data.push({ x: step, y: price });
+            mem.sells.push({ x: step, y: price });
           }
 
           chart.update('none');
 
-          // action log
-          if (act.action !== 'HOLD' || step % 10 === 0) {
-            this.actionLog.unshift({ step, action: act.action, reward });
-            if (this.actionLog.length > 20) this.actionLog.pop();
+          // action log — medium logs every 5 steps, others every 10
+          const logInterval = taskId === 'medium' ? 5 : 10;
+          if (act.action !== 'HOLD' || step % logInterval === 0) {
+            const entry = { step, action: act.action, reward };
+            this.actionLog.unshift(entry);
+            taskMemory[taskId].actionLog.unshift(entry);
+            if (this.actionLog.length > 20) {
+              this.actionLog.pop();
+              taskMemory[taskId].actionLog.pop();
+            }
           }
 
           this.progress = Math.min(99, Math.round((step / maxSteps) * 100));
-
           await new Promise(r => setTimeout(r, 15));
         }
 
