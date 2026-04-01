@@ -6,17 +6,490 @@
   <title>Trading-Agent-OpenEnv</title>
   <link rel="stylesheet" href="/static/style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-  <!-- hammer.js required by chartjs-plugin-zoom for touch/drag support -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.3/cdn.min.js" defer></script>
+
+  <style>
+    /* ── Google Font ── */
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #070710;
+      --surface:   #0d0d1a;
+      --border:    #1a1a2e;
+      --border-hi: #252540;
+      --text:      #c8c8e0;
+      --muted:     #44445a;
+      --green:     #22c55e;
+      --amber:     #f59e0b;
+      --red:       #ef4444;
+      --purple:    #a78bfa;
+      --blue:      #38bdf8;
+      --font-mono: 'IBM Plex Mono', monospace;
+      --font-head: 'Space Mono', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      overflow: hidden;
+    }
+
+    /* scanline overlay */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    .dash {
+      display: grid;
+      grid-template-rows: 52px auto 1fr auto;
+      height: 100vh;
+      padding: 10px 14px;
+      gap: 10px;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+
+    .logo {
+      font-family: var(--font-head);
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #fff;
+    }
+
+    .sublogo {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 2px;
+      letter-spacing: 0.05em;
+    }
+
+    .status-wrap {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border-hi);
+      border-radius: 20px;
+      padding: 5px 12px;
+    }
+
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+    }
+    .dot-green {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    .dot-red { background: var(--red); }
+
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0.4; }
+    }
+
+    .status-text {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: var(--text);
+    }
+
+    /* ── SCORE ROW ── */
+    .score-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .score-card {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+      overflow: hidden;
+    }
+
+    /* top accent bar */
+    .score-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      border-radius: 10px 10px 0 0;
+      transition: opacity 0.2s;
+    }
+    .score-card.easy::before   { background: var(--green); }
+    .score-card.medium::before { background: var(--amber); }
+    .score-card.hard::before   { background: var(--red); }
+
+    /* glow on active/hover */
+    .score-card:hover,
+    .score-card.active-card {
+      transform: translateY(-2px);
+    }
+    .score-card.easy.active-card,
+    .score-card.easy:hover      { border-color: var(--green); box-shadow: 0 0 18px rgba(34,197,94,0.12), 0 4px 20px rgba(0,0,0,0.4); }
+    .score-card.medium.active-card,
+    .score-card.medium:hover    { border-color: var(--amber); box-shadow: 0 0 18px rgba(245,158,11,0.12), 0 4px 20px rgba(0,0,0,0.4); }
+    .score-card.hard.active-card,
+    .score-card.hard:hover      { border-color: var(--red);   box-shadow: 0 0 18px rgba(239,68,68,0.12),  0 4px 20px rgba(0,0,0,0.4); }
+
+    /* active indicator dot in corner */
+    .score-card.active-card::after {
+      content: '▶';
+      position: absolute;
+      top: 10px; right: 12px;
+      font-size: 8px;
+      opacity: 0.6;
+    }
+    .score-card.easy.active-card::after   { color: var(--green); }
+    .score-card.medium.active-card::after { color: var(--amber); }
+    .score-card.hard.active-card::after   { color: var(--red); }
+
+    .task-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .score-card.easy   .task-label { color: rgba(34,197,94,0.7); }
+    .score-card.medium .task-label { color: rgba(245,158,11,0.7); }
+    .score-card.hard   .task-label { color: rgba(239,68,68,0.7); }
+
+    .score-val {
+      font-family: var(--font-head);
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.01em;
+    }
+
+    .meta-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .profit { color: var(--green); }
+
+    /* ── CHART SECTION ── */
+    .chart-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .chart-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .chart-title {
+      font-family: var(--font-head);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    .chart-hint {
+      font-size: 10px;
+      color: var(--muted);
+      flex: 1;
+      letter-spacing: 0.04em;
+    }
+
+    .task-tabs {
+      display: flex;
+      gap: 4px;
+    }
+
+    .tab {
+      background: transparent;
+      border: 1px solid var(--border-hi);
+      border-radius: 6px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tab:hover { color: var(--text); border-color: #333355; }
+
+    .easy-tab.active   { color: var(--green); border-color: var(--green); background: rgba(34,197,94,0.08); }
+    .medium-tab.active { color: var(--amber); border-color: var(--amber); background: rgba(245,158,11,0.08); }
+    .hard-tab.active   { color: var(--red);   border-color: var(--red);   background: rgba(239,68,68,0.08); }
+
+    .chart-wrap {
+      flex: 1;
+      padding: 10px 14px;
+      min-height: 0;
+      position: relative;
+    }
+
+    .chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+    .legend {
+      display: flex;
+      gap: 16px;
+      padding: 8px 14px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .leg-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+
+    .leg-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+
+    /* ── BOTTOM ROW ── */
+    .bottom-row {
+      display: grid;
+      grid-template-columns: 1fr 1.6fr;
+      gap: 10px;
+    }
+
+    .avg-card, .feed {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      overflow: hidden;
+    }
+
+    .avg-label {
+      font-family: var(--font-head);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .avg-val {
+      font-family: var(--font-head);
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--purple);
+      letter-spacing: -0.02em;
+    }
+
+    .avg-sub {
+      font-size: 10px;
+      color: var(--muted);
+      margin-bottom: 12px;
+      margin-top: 2px;
+    }
+
+    .bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .bar-track {
+      background: rgba(255,255,255,0.04);
+      border-radius: 3px;
+      height: 4px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    /* ── FEED ── */
+    .feed-title {
+      font-family: var(--font-head);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .feed-list {
+      height: 72px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-hi) transparent;
+      margin-bottom: 10px;
+    }
+
+    .feed-empty {
+      color: var(--muted);
+      font-size: 11px;
+      font-style: italic;
+      padding: 4px 0;
+    }
+
+    .feed-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-bottom: 2px;
+    }
+
+    .act-buy-row  { background: rgba(34,197,94,0.05); }
+    .act-sell-row { background: rgba(239,68,68,0.05); }
+
+    .feed-step   { color: var(--muted); font-size: 10px; min-width: 50px; }
+    .feed-reward { margin-left: auto; font-size: 10px; font-weight: 600; }
+
+    .act-buy  { color: var(--green); font-weight: 700; letter-spacing: 0.06em; }
+    .act-sell { color: var(--red);   font-weight: 700; letter-spacing: 0.06em; }
+    .act-hold { color: var(--muted); }
+
+    /* ── RUN CONTROLS ── */
+    .run-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .task-select {
+      flex: 1;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border-hi);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      padding: 8px 12px;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.15s;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2344445a'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+    .task-select:focus { border-color: var(--purple); }
+    .task-select:disabled { opacity: 0.4; cursor: not-allowed; }
+    .task-select option { background: #0d0d1a; }
+
+    .run-btn {
+      background: linear-gradient(135deg, #7c3aed, #a78bfa);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-family: var(--font-head);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      padding: 8px 20px;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s;
+      white-space: nowrap;
+      box-shadow: 0 0 16px rgba(167,139,250,0.25);
+    }
+    .run-btn:hover:not(:disabled) {
+      opacity: 0.92;
+      transform: translateY(-1px);
+      box-shadow: 0 0 24px rgba(167,139,250,0.4);
+    }
+    .run-btn:active:not(:disabled) { transform: translateY(0); }
+    .run-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    /* ── PROGRESS ── */
+    .progress-wrap {
+      margin-top: 8px;
+      height: 3px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--purple), var(--blue));
+      border-radius: 3px;
+      transition: width 0.3s ease;
+      box-shadow: 0 0 8px rgba(167,139,250,0.5);
+    }
+  </style>
 </head>
 <body>
   <div class="dash" x-data="dashboard()" x-init="init()">
 
+    <!-- HEADER -->
     <div class="header">
       <div>
-        <div class="logo">Trading-Agent-OpenEnv</div>
+        <div class="logo">TRADING-AGENT-OPENENV</div>
         <div class="sublogo">AeroScissors · Hugging Face Spaces</div>
       </div>
       <div class="status-wrap">
@@ -25,9 +498,15 @@
       </div>
     </div>
 
+    <!-- SCORE CARDS — clicking switches active task only -->
     <div class="score-row">
       <template x-for="t in tasks" :key="t.id">
-        <div class="score-card" :class="t.id">
+        <div
+          class="score-card"
+          :class="[t.id, activeTask === t.id ? 'active-card' : '']"
+          @click="switchTask(t.id)"
+          style="user-select:none"
+        >
           <div class="task-label" x-text="t.label"></div>
           <div class="score-val" x-text="t.score !== null ? t.score.toFixed(4) : '—'"></div>
           <div class="meta-row">
@@ -38,12 +517,11 @@
       </template>
     </div>
 
+    <!-- CHART -->
     <div class="chart-section">
       <div class="chart-header">
         <div class="chart-title">Episode Replay</div>
-        <div class="chart-hint" style="font-size:10px;color:#3a3a5a;font-family:monospace;align-self:center;">
-          scroll to zoom · drag to pan · double-click to reset
-        </div>
+        <div class="chart-hint">scroll to zoom · drag to pan · double-click to reset</div>
         <div class="task-tabs">
           <template x-for="t in tasks" :key="t.id">
             <button
@@ -65,6 +543,7 @@
       </div>
     </div>
 
+    <!-- BOTTOM ROW -->
     <div class="bottom-row">
       <div class="avg-card">
         <div class="avg-label">Average Score</div>
@@ -91,7 +570,6 @@
           <template x-if="actionLog.length === 0">
             <div class="feed-empty">No actions yet. Run the agent.</div>
           </template>
-          
           <template x-for="(item, i) in actionLog" :key="i">
             <div class="feed-item" :class="'act-' + item.action.toLowerCase() + '-row'">
               <span class="feed-step" x-text="'step ' + item.step"></span>
@@ -102,11 +580,11 @@
               </span>
             </div>
           </template>
-          
         </div>
 
         <div class="run-controls">
-          <select x-model="activeTask" class="task-select" :disabled="running">
+          <select x-model="activeTask" class="task-select" :disabled="running"
+            @change="switchTask(activeTask)">
             <option value="easy">EASY — AAPL</option>
             <option value="medium">MEDIUM — MSFT</option>
             <option value="hard">HARD — BTC-USD</option>
@@ -121,6 +599,7 @@
         </div>
       </div>
     </div>
+
   </div>
 
   <script src="/static/dashboard.js"></script>
