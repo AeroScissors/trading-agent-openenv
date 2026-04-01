@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "trading-agent-openenv"
+version = "1.0.0"
+description = "An OpenEnv-compatible RL trading environment supporting AAPL, MSFT, and BTC-USD tasks"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.135.2",
+    "uvicorn==0.42.0",
+    "pydantic==2.12.5",
+    "numpy==2.2.6",
+    "pandas==2.3.3",
+    "yfinance==1.2.0",
+    "openai",
+    "requests==2.33.0",
+    "python-dateutil==2.9.0.post0",
+    "starlette==1.0.0",
+    "anyio==4.13.0",
+    "typing_extensions==4.15.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["env*", "api*"]
+
+[project.urls]
+Homepage = "https://huggingface.co/spaces/AeroScissors/trading-agent-openenv"
+Repository = "https://github.com/AeroScissors/trading-agent-openenv"
