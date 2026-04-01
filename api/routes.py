@@ -90,11 +90,13 @@ def list_tasks():
 # ------------------------------------------------------------------ #
 
 @router.post("/reset")
-def reset_env(req: ResetRequest):
+def reset_env(req: Optional[ResetRequest] = None):
     """
     Reset the environment for a given task.
     Returns the initial state.
     """
+    if req is None:
+        req = ResetRequest(task="easy")
     if req.task not in ("easy", "medium", "hard"):
         raise HTTPException(status_code=400, detail=f"Unknown task '{req.task}'")
 
