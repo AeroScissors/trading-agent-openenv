@@ -69,7 +69,7 @@ reward = profit_change - risk_penalty - trade_cost
 | Component | Description |
 |---|---|
 | `profit_change` | Change in total portfolio value this step (cash + position × price) |
-| `risk_penalty` | Activates when drawdown exceeds 5% — scales with severity |
+| `risk_penalty` | Activates when drawdown exceeds 2% — scales with severity |
 | `trade_cost` | 0.1% fee on every BUY or SELL (slippage simulation) |
 
 The reward is dense — every timestep provides signal. Agents that over-trade are penalised by accumulated costs; agents that let drawdowns grow are penalised by the risk term.
@@ -178,6 +178,17 @@ export OPENAI_API_KEY=your_key_here
 python baseline_llm.py
 ```
 
+### Run inference against the live HF Space
+
+```bash
+export API_BASE_URL=https://api-inference.huggingface.co/v1
+export MODEL_NAME=meta-llama/Llama-3.3-70B-Instruct
+export HF_TOKEN=your_hf_token
+export ENV_BASE_URL=https://aeroscissors-trading-agent-openenv-v2.hf.space
+
+python inference.py
+```
+
 ---
 
 ## Project structure
@@ -185,11 +196,16 @@ python baseline_llm.py
 ```
 .
 ├── main.py                  # FastAPI app entry point
+├── inference.py             # LLM-based agent (OpenAI client format)
 ├── baseline.py              # Rule-based MA crossover baseline
-├── baseline_llm.py          # LLM baseline agent (OpenAI API)
 ├── openenv.yaml             # OpenEnv spec metadata
 ├── requirements.txt
 ├── Dockerfile
+├── frontend/
+│   ├── index.html           # Live dashboard UI
+│   └── static/
+│       ├── style.css
+│       └── dashboard.js
 ├── api/
 │   └── routes.py            # All HTTP endpoints
 └── env/
@@ -221,15 +237,13 @@ Validated with `openenv validate`.
 
 ## Baseline scores
 
-Scores produced by the MA5/MA10 crossover rule-based agent on synthetic data (yfinance fallback):
+Scores produced by the MA5/MA10 crossover rule-based agent on real market data:
 
 | Task | Score | Profit |
 |---|---|---|
-| easy | 0.095 | $47.50 |
-| medium | 0.088 | $32.10 |
-| hard | 0.076 | $58.20 |
-
-Scores vary slightly with market data — the synthetic fallback uses a fixed seed (`np.random.seed(42)`) for reproducibility.
+| easy | 1.0000 | ~$3,800 |
+| medium | 1.0000 | ~$5,700 |
+| hard | 0.8797 | ~$5,950 |
 
 ---
 
