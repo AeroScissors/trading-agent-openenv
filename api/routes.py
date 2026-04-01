@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Optional
 from fastapi.responses import FileResponse
 
@@ -42,7 +42,15 @@ def _get_env(task: str) -> TradingEnv:
 # ------------------------------------------------------------------ #
 
 class ResetRequest(BaseModel):
-    task: str = "easy"
+    task:    Optional[str] = None
+    task_id: Optional[str] = None  # some checkers send task_id
+
+    @model_validator(mode="after")
+    def resolve_task(self):
+        # accept either field; task takes priority
+        resolved = self.task or self.task_id or "easy"
+        self.task = resolved
+        return self
 
 
 class StepRequest(BaseModel):
@@ -52,11 +60,17 @@ class StepRequest(BaseModel):
 
 
 class GraderRequest(BaseModel):
-    task: str = "easy"
+    task:    Optional[str] = None
+    task_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def resolve_task(self):
+        self.task = self.task or self.task_id or "easy"
+        return self
 
 
 class BaselineRequest(BaseModel):
-    task: Optional[str] = None   # None = run all tasks
+    task: Optional[str] = None
 
 
 # ------------------------------------------------------------------ #
