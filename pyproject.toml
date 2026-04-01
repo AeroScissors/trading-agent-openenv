@@ -16,6 +16,7 @@ dependencies = [
     "pandas==2.3.3",
     "yfinance==1.2.0",
     "openai",
+    "openenv-core>=0.2.0",
     "requests==2.33.0",
     "python-dateutil==2.9.0.post0",
     "starlette==1.0.0",
@@ -23,12 +24,15 @@ dependencies = [
     "typing_extensions==4.15.0",
 ]
 
+[project.scripts]
+server = "server.app:main"
+
 [project.optional-dependencies]
 dev = ["pytest", "httpx"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["env*", "api*"]
+include = ["env*", "api*", "server*"]
 
 [project.urls]
 Homepage = "https://huggingface.co/spaces/AeroScissors/trading-agent-openenv"
