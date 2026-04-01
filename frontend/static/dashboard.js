@@ -4,7 +4,7 @@ const MAX_STEPS = { easy: 249, medium: 249, hard: 249 };
 
 const SAFE_DEFAULTS = {
   easy:   { pos_size: 0.95, stop_loss_pct: 0.85, sell_end: false, take_profit: 1.20 },
-  medium: { pos_size: 0.90, stop_loss_pct: 0.05, sell_end: true,  take_profit: 999.0 },
+  medium: { pos_size: 0.99, stop_loss_pct: 0.90, sell_end: true,  take_profit: 999.0 },
   hard:   { pos_size: 0.90, stop_loss_pct: 0.80, sell_end: false, take_profit: 999.0 },
 };
 
@@ -119,15 +119,24 @@ function createChart(color, memory) {
 
 // ── agent logic ───────────────────────────────────────────────────────────────
 function getAction(task, step, state, maxSteps) {
+
+  // ── MEDIUM: pure buy-and-hold, skip end-sell if losing ───────────────────
   if (task === 'medium') {
     const cash     = state?.cash ?? 0;
     const position = state?.position ?? 0;
-    if (step === 1)             return { action: 'BUY',  quantity: Math.round((cash * 0.90) / (state?.current_price ?? 1) * 10000) / 10000 };
-    if (step === maxSteps - 1)  return { action: 'SELL', quantity: Math.round(position * 10000) / 10000 };  // exact step only, no double SELL
+    const price    = state?.current_price ?? 0;
+    if (step === 1) {
+      agentState.entry_price = price;
+      return { action: 'BUY', quantity: Math.round((cash * 0.99) / (price || 1) * 10000) / 10000 };
+    }
+    if (step === maxSteps - 1 && position > 0 && agentState.entry_price > 0 && price > agentState.entry_price) {
+      return { action: 'SELL', quantity: Math.round(position * 10000) / 10000 };
+    }
     return { action: 'HOLD', quantity: 0.0 };
   }
 
-  const strategy = SAFE_DEFAULTS[task];
+  // ── EASY / HARD: MA crossover strategy ───────────────────────────────────
+  const strategy = SAFE_DEFAULTS[task];   // ← was missing, caused crash
   const price    = state?.current_price ?? 0;
   const cash     = state?.cash ?? 0;
   const position = state?.position ?? 0;
@@ -182,7 +191,7 @@ function getAction(task, step, state, maxSteps) {
     }
 
     if (agentState.death_cnt >= 3) return sell();
-    if (strategy.sell_end && step >= maxSteps - 1) return sell();
+    if (strategy.sell_end && step >= maxSteps - 1 && price > agentState.entry_price) return sell();
   }
 
   return { action: 'HOLD', quantity: 0.0 };
