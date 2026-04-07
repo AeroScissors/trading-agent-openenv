@@ -13,7 +13,6 @@
 <body>
   <div class="dash" x-data="dashboard()" x-init="init()">
 
-    <!-- ── HEADER ─────────────────────────────────────────────────── -->
     <div class="header">
       <div>
         <div class="logo">TRADING AGENT DASHBOARD</div>
@@ -25,7 +24,6 @@
       </div>
     </div>
 
-    <!-- ── SCORE CARDS ────────────────────────────────────────────── -->
     <div class="score-row">
       <template x-for="t in tasks" :key="t.id">
         <div
@@ -43,7 +41,6 @@
       </template>
     </div>
 
-    <!-- ── CHART ──────────────────────────────────────────────────── -->
     <div class="chart-section">
       <div class="chart-header">
         <div class="chart-title">EPISODE REPLAY</div>
@@ -69,10 +66,8 @@
       </div>
     </div>
 
-    <!-- ── BOTTOM ROW ─────────────────────────────────────────────── -->
     <div class="bottom-row">
 
-      <!-- Average Score -->
       <div class="avg-card">
         <div class="avg-label">AVERAGE SCORE</div>
         <div class="avg-val" x-text="avgScore !== null ? avgScore.toFixed(4) : '—'"></div>
@@ -87,23 +82,22 @@
               ></span>
               <span x-text="t.score !== null ? t.score.toFixed(2) : '—'"></span>
             </div>
-            <!-- segmented pixel bar -->
+
             <div class="bar-track">
-              <div class="bar-fill">
-                <template x-for="s in getSegments(t)" :key="s">
+              <div class="bar-grid">
+                <template x-for="(seg, index) in segments" :key="index">
                   <div
                     class="seg"
-                    :style="'background:' + (t.id==='easy' ? 'var(--cyan)' : t.id==='medium' ? 'var(--amber)' : 'var(--magenta)') +
-                            ';box-shadow:0 0 4px ' + (t.id==='easy' ? 'var(--cyan)' : t.id==='medium' ? 'var(--amber)' : 'var(--magenta)')"
+                    :style="segmentStyle(t, index)"
                   ></div>
                 </template>
               </div>
             </div>
+
           </div>
         </template>
       </div>
 
-      <!-- Action Log + Controls -->
       <div class="feed">
         <div class="feed-title">ACTION LOG</div>
 
@@ -156,16 +150,37 @@
 
   <script src="/static/dashboard.js"></script>
 
-  <!-- patch dashboard() to add getSegments helper -->
   <script>
     const _orig = dashboard;
     dashboard = function() {
       const d = _orig();
-      d.getSegments = function(t) {
-        if (t.score === null) return [];
-        const count = Math.round(t.score * 30);
-        return Array.from({ length: count }, (_, i) => i);
+
+      d.TOTAL_SEGMENTS = 30;
+
+      Object.defineProperty(d, 'segments', {
+        get() {
+          return Array.from({ length: d.TOTAL_SEGMENTS });
+        }
+      });
+
+      d.segmentStyle = function(task, index) {
+        if (task.score === null) return '';
+
+        const filled = Math.floor(task.score * d.TOTAL_SEGMENTS);
+
+        if (index < filled) {
+          let color;
+
+          if (task.id === 'easy') color = 'var(--cyan)';
+          else if (task.id === 'medium') color = 'var(--amber)';
+          else color = 'var(--magenta)';
+
+          return `background:${color}; box-shadow:0 0 4px ${color};`;
+        }
+
+        return 'background:transparent;';
       };
+
       return d;
     };
   </script>

@@ -308,23 +308,26 @@ body::after {
 }
 /* segment bar */
 .bar-track {
+  width: 100%;
   height: 12px;
+  border: 1px solid #2a004a;
   background: #0a0015;
-  border: 1px solid var(--bc);
-  overflow: hidden;
+  padding: 2px;
   margin-bottom: 10px;
 }
-.bar-fill {
-  height: 100%;
-  display: flex;
+
+.bar-grid {
+  display: grid;
+  grid-template-columns: repeat(30, 1fr);
   gap: 2px;
-  align-items: center;
-  padding: 0 2px;
-  transition: none;
+  height: 100%;
 }
+
 .seg {
-  width: 8px; height: 8px; flex-shrink: 0;
+  height: 100%;
+  background: transparent;
   border-radius: 1px;
+  transition: all 0.2s ease;
 }
 
 /* feed */
@@ -418,4 +421,55 @@ body::after {
   background: linear-gradient(90deg, var(--magenta), var(--cyan));
   box-shadow: 0 0 6px var(--magenta);
   transition: width 0.3s ease;
+}
+
+/* ===== TEXT BRIGHTNESS UPGRADE ===== */
+
+/* average score number */
+.avg-val {
+  color: var(--cyan);
+  text-shadow:
+    0 0 6px var(--cyan),
+    0 0 12px var(--cyan),
+    0 0 24px var(--cyan);
+  filter: brightness(1.3);
+}
+
+/* section titles */
+.avg-label,
+.feed-title,
+.chart-title {
+  color: #cfffff;
+  text-shadow:
+    0 0 4px rgba(0,255,231,0.6),
+    0 0 8px rgba(0,255,231,0.3);
+  opacity: 0.9;
+}
+
+/* small subtitle text */
+.avg-sub,
+.chart-hint {
+  color: #6fefff;
+  opacity: 0.75;
+}
+
+/* bar labels (EASY / MEDIUM / HARD text) */
+.bar-label span:first-child {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-shadow:
+    0 0 6px currentColor,
+    0 0 12px currentColor;
+}
+
+/* score numbers on right of bars */
+.bar-label span:last-child {
+  color: #d0ffff;
+  text-shadow:
+    0 0 4px rgba(0,255,231,0.6);
+}
+
+/* make everything slightly more visible overall */
+body {
+  filter: contrast(1.1) brightness(1.05);
 }
