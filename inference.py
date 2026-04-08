@@ -14,6 +14,7 @@ Usage:
 import os
 import re
 import json
+import sys
 import requests
 from openai import OpenAI
 
@@ -29,7 +30,7 @@ ENV_BASE_URL  = os.environ.get("ENV_BASE_URL",  "http://localhost:7860")
 
 TASKS         = ["easy", "medium", "hard"]
 MAX_STEPS     = {"easy": 249, "medium": 249, "hard": 363}
-LLM_EVERY_N   = 10        # call LLM every N steps (saves time + cost)
+LLM_EVERY_N   = 10
 TEMPERATURE   = 0.1
 MAX_TOKENS    = 64
 FALLBACK      = "HOLD"
@@ -64,7 +65,6 @@ def build_user_prompt(task: str, step: int, state: dict, max_steps: int) -> str:
     ma5      = state.get("ma5", 0)
     ma10     = state.get("ma10", 0)
     sharpe   = state.get("sharpe", 0)
-
     portfolio = cash + position * price
 
     return f"""Task: {task.upper()} | Step: {step}/{max_steps}
@@ -101,16 +101,12 @@ def get_llm_action(task: str, step: int, state: dict, max_steps: int) -> str:
         )
         response = completion.choices[0].message.content or ""
         response = response.strip().upper()
-
-        # extract first valid action word
         for word in re.split(r'\W+', response):
             if word in ("BUY", "SELL", "HOLD"):
                 return word
-
         return FALLBACK
-
     except Exception as e:
-        print(f"  [LLM error] {e} — using FALLBACK ({FALLBACK})")
+        print(f"  [LLM error] {e} — using FALLBACK ({FALLBACK})", flush=True)
         return FALLBACK
 
 
@@ -143,19 +139,17 @@ def env_grader(task: str) -> dict:
 # ------------------------------------------------------------------ #
 
 def run_task(task: str) -> dict:
-    print(f"\n{'='*50}")
-    print(f"Task: {task.upper()}")
-    print(f"{'='*50}")
+    print(f"\n{'='*50}", flush=True)
+    print(f"Task: {task.upper()}", flush=True)
+    print(f"{'='*50}", flush=True)
 
-    state    = env_reset(task)
-    max_steps = MAX_STEPS[task]
-
+    state         = env_reset(task)
+    max_steps     = MAX_STEPS[task]
     current_action = FALLBACK
     step           = 0
     done           = False
     total_reward   = 0.0
-
-    steps_log = []
+    steps_log      = []
 
     while not done:
         step += 1
@@ -174,14 +168,13 @@ def run_task(task: str) -> dict:
         else:
             quantity = 0.0
 
-        result       = env_step(task, current_action, quantity)
-        done         = result.get("done", False)
-        state        = result.get("observation", {})
-        reward       = result.get("reward", 0.0)
+        result        = env_step(task, current_action, quantity)
+        done          = result.get("done", False)
+        state         = result.get("observation", {})
+        reward        = result.get("reward", 0.0)
         total_reward += reward
 
         portfolio = state.get("cash", 0) + state.get("position", 0) * state.get("current_price", 0)
-
         steps_log.append({
             "step": step,
             "action": current_action,
@@ -190,50 +183,58 @@ def run_task(task: str) -> dict:
         })
 
         if step % 50 == 0 or done:
-            print(f"  Step {step:3d} | {current_action:4s} | reward={reward:+.4f} | portfolio=${portfolio:,.2f}")
+            print(f"  Step {step:3d} | {current_action:4s} | reward={reward:+.4f} | portfolio=${portfolio:,.2f}", flush=True)
 
     grade = env_grader(task)
-    print(f"\n  Score  : {grade['score']}")
-    print(f"  Profit : ${grade['profit']:,.2f}")
-    print(f"  Reward : {total_reward:.4f}")
+    print(f"\n  Score  : {grade['score']}", flush=True)
+    print(f"  Profit : ${grade['profit']:,.2f}", flush=True)
+    print(f"  Reward : {total_reward:.4f}", flush=True)
 
-    # --- structured output block ---
-    print(f"[START]")
+    # structured output block
+    print(f"[START] task={task}", flush=True)
     for s in steps_log:
-        print(f"[STEP] task={task} step={s['step']} action={s['action']} reward={s['reward']} portfolio={s['portfolio']}")
-    print(f"[END] task={task} score={grade['score']} profit={round(grade['profit'],2)} total_reward={round(total_reward,4)}")
+        print(f"[STEP] step={s['step']} action={s['action']} reward={s['reward']} portfolio={s['portfolio']}", flush=True)
+    print(f"[END] task={task} score={grade['score']} steps={step}", flush=True)
 
     return grade
 
 
+# ------------------------------------------------------------------ #
+#  Main                                                               #
+# ------------------------------------------------------------------ #
+
 def main():
-    print("=" * 50)
-    print("TRADING-AGENT-OPENENV — LLM INFERENCE")
-    print(f"Model : {MODEL_NAME}")
-    print(f"API   : {API_BASE_URL}")
-    print(f"Env   : {ENV_BASE_URL}")
-    print("=" * 50)
+    print("=" * 50, flush=True)
+    print("TRADING-AGENT-OPENENV — LLM INFERENCE", flush=True)
+    print(f"Model : {MODEL_NAME}", flush=True)
+    print(f"API   : {API_BASE_URL}", flush=True)
+    print(f"Env   : {ENV_BASE_URL}", flush=True)
+    print("=" * 50, flush=True)
 
     if not HF_TOKEN:
-        print("\n⚠️  WARNING: HF_TOKEN not set. LLM calls may fail.")
+        print("\n⚠️  WARNING: HF_TOKEN not set. LLM calls may fail.", flush=True)
 
     results = {}
     for task in TASKS:
         results[task] = run_task(task)
 
-    print(f"\n{'='*50}")
-    print("FINAL RESULTS")
-    print(f"{'='*50}")
+    print(f"\n{'='*50}", flush=True)
+    print("FINAL RESULTS", flush=True)
+    print(f"{'='*50}", flush=True)
     for task, result in results.items():
-        print(f"  {task:6s} : {result['score']:.4f}")
+        print(f"  {task:6s} : {result['score']:.4f}", flush=True)
 
     avg = sum(r["score"] for r in results.values()) / len(results)
-    print(f"\n  AVG    : {avg:.4f}")
-    print(f"{'='*50}")
+    print(f"\n  AVG    : {avg:.4f}", flush=True)
+    print(f"{'='*50}", flush=True)
 
     output = {
         "scores": {t: r["score"] for t, r in results.items()},
         "average": round(avg, 4),
         "model": MODEL_NAME,
     }
-    print(f"\nJSON output:\n{json.dumps(output, indent=2)}")
+    print(f"\nJSON output:\n{json.dumps(output, indent=2)}", flush=True)
+
+
+if __name__ == "__main__":
+    main()
