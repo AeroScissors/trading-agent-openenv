@@ -19,24 +19,6 @@ def grade(
     portfolio_history: list[float] = None,
     trade_log: list[dict] = None,
 ) -> dict:
-    """
-    Master grading function — delegates to per-task grader.
-
-    Args:
-        task              : "easy", "medium", or "hard"
-        final_portfolio   : total portfolio value at episode end
-        initial_cash      : starting capital (default 10,000)
-        portfolio_history : list of portfolio values per step (needed for hard)
-        trade_log         : list of trade dicts (needed for medium)
-
-    Returns:
-        dict with keys:
-            score       → float in [0.0, 1.0]
-            task        → task id string
-            profit      → raw profit in USD
-            breakdown   → task-specific sub-scores
-    """
-
     if task not in SUPPORTED_TASKS:
         raise ValueError(f"Unknown task '{task}'. Choose from {SUPPORTED_TASKS}")
 
@@ -76,7 +58,7 @@ def grade(
         }
 
     return {
-        "score":     score,
+        "score":     round(min(0.999, max(0.001, score)), 4),
         "task":      task,
         "profit":    round(profit, 2),
         "breakdown": breakdown,
@@ -84,16 +66,6 @@ def grade(
 
 
 def grade_all(results: dict) -> dict:
-    """
-    Grade all three tasks at once.
-
-    Args:
-        results: dict keyed by task id, each value is a dict with:
-                 final_portfolio, initial_cash, portfolio_history, trade_log
-
-    Returns:
-        dict keyed by task id → grade result + overall average score
-    """
     scores = {}
     for task in SUPPORTED_TASKS:
         if task not in results:
@@ -121,11 +93,9 @@ def grade_all(results: dict) -> dict:
 if __name__ == "__main__":
     print("=== Grader self-test ===\n")
 
-    # Easy
     result = grade("easy", final_portfolio=10_600.0)
     print(f"Easy   → score={result['score']}  profit=${result['profit']}  breakdown={result['breakdown']}")
 
-    # Medium
     trades = [
         {"action": "BUY",  "price": 300.0, "quantity": 10},
         {"action": "SELL", "price": 320.0, "quantity": 10},
@@ -133,7 +103,6 @@ if __name__ == "__main__":
     result = grade("medium", final_portfolio=10_900.0, trade_log=trades)
     print(f"Medium → score={result['score']}  profit=${result['profit']}  breakdown={result['breakdown']}")
 
-    # Hard
     history = [10_000 * (1 + 0.002 * i) for i in range(252)]
     result  = grade("hard", final_portfolio=history[-1], portfolio_history=history)
     print(f"Hard   → score={result['score']}  profit=${result['profit']}  breakdown={result['breakdown']}")
