@@ -150,19 +150,19 @@ def run_task(task: str) -> dict:
     state    = env_reset(task)
     max_steps = MAX_STEPS[task]
 
-    current_action = FALLBACK   # last LLM decision
+    current_action = FALLBACK
     step           = 0
     done           = False
     total_reward   = 0.0
 
+    steps_log = []
+
     while not done:
         step += 1
 
-        # call LLM every N steps or on step 1
         if step == 1 or step % LLM_EVERY_N == 0:
             current_action = get_llm_action(task, step, state, max_steps)
 
-        # compute quantity
         price    = state.get("current_price", 1)
         cash     = state.get("cash", 0)
         position = state.get("position", 0)
@@ -180,8 +180,16 @@ def run_task(task: str) -> dict:
         reward       = result.get("reward", 0.0)
         total_reward += reward
 
+        portfolio = state.get("cash", 0) + state.get("position", 0) * state.get("current_price", 0)
+
+        steps_log.append({
+            "step": step,
+            "action": current_action,
+            "reward": round(reward, 6),
+            "portfolio": round(portfolio, 2),
+        })
+
         if step % 50 == 0 or done:
-            portfolio = state.get("cash", 0) + state.get("position", 0) * state.get("current_price", 0)
             print(f"  Step {step:3d} | {current_action:4s} | reward={reward:+.4f} | portfolio=${portfolio:,.2f}")
 
     grade = env_grader(task)
@@ -189,12 +197,14 @@ def run_task(task: str) -> dict:
     print(f"  Profit : ${grade['profit']:,.2f}")
     print(f"  Reward : {total_reward:.4f}")
 
+    # --- structured output block ---
+    print(f"[START]")
+    for s in steps_log:
+        print(f"[STEP] task={task} step={s['step']} action={s['action']} reward={s['reward']} portfolio={s['portfolio']}")
+    print(f"[END] task={task} score={grade['score']} profit={round(grade['profit'],2)} total_reward={round(total_reward,4)}")
+
     return grade
 
-
-# ------------------------------------------------------------------ #
-#  Main                                                               #
-# ------------------------------------------------------------------ #
 
 def main():
     print("=" * 50)
@@ -221,14 +231,9 @@ def main():
     print(f"\n  AVG    : {avg:.4f}")
     print(f"{'='*50}")
 
-    # output JSON for automated validation
     output = {
         "scores": {t: r["score"] for t, r in results.items()},
         "average": round(avg, 4),
         "model": MODEL_NAME,
     }
     print(f"\nJSON output:\n{json.dumps(output, indent=2)}")
-
-
-if __name__ == "__main__":
-    main()
