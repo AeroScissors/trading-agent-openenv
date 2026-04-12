@@ -32,7 +32,7 @@
           @click="switchTask(t.id)"
         >
           <div class="task-label" x-text="t.label"></div>
-          <div class="score-val" x-text="t.score !== null ? t.score.toFixed(4) : '—'"></div>
+          <div class="score-val" x-text="t.sharpe !== undefined && t.sharpe !== null ? t.sharpe.toFixed(4) : (t.score !== null ? t.score.toFixed(4) : '—')"></div>
           <div class="meta-row">
             <span class="profit" x-text="t.profit !== null ? '+$' + t.profit.toLocaleString() : '—'"></span>
             <span x-text="t.steps !== null ? t.steps + ' steps' : '—'"></span>
@@ -162,19 +162,25 @@
         }
       });
 
+      // Each task has a different Sharpe target — bars reflect progress toward that target
+      const SHARPE_TARGETS = { easy: 1.0, medium: 0.9, hard: 1.2 };
+
       d.segmentStyle = function(task, index) {
         if (task.score === null) return '';
 
-        const normalized = Math.max(0, Math.min(1, task.score));
-        const filled = Math.floor(normalized * d.TOTAL_SEGMENTS);
+        // score from grader is already normalized (0-1), but all tasks cap at 0.999
+        // Re-map so bars show distinct fill levels based on raw Sharpe vs target
+        // We store raw sharpe in task.sharpe if available, else use score
+        const sharpe = task.sharpe !== undefined ? task.sharpe : task.score;
+        const target = SHARPE_TARGETS[task.id] || 1.0;
+        const ratio  = Math.max(0, Math.min(1, sharpe / target));
+        const filled = Math.floor(ratio * d.TOTAL_SEGMENTS);
 
         if (index < filled) {
           let color;
-
           if (task.id === 'easy') color = 'var(--cyan)';
           else if (task.id === 'medium') color = 'var(--amber)';
           else color = 'var(--magenta)';
-
           return `background:${color}; box-shadow:0 0 4px ${color};`;
         }
 

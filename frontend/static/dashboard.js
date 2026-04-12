@@ -283,7 +283,8 @@ function dashboard() {
         const grade = await gradeRes.json();
         
         // Use score if available, fallback to sharpe for compatibility
-        t.score  = grade.score ?? grade.sharpe ?? 0;
+        t.score  = grade.score  ?? grade.sharpe ?? 0;
+        t.sharpe = grade.sharpe ?? grade.score  ?? 0;  // raw Sharpe for bar display
         t.profit = Math.round((grade.portfolio_value ?? 10000) - 10000);
 
         const scored = this.tasks.filter(x => x.score !== null);
