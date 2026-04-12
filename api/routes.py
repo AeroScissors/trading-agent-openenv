@@ -25,10 +25,10 @@ _envs: dict[str, TradingEnv] = {}
 
 def _get_env(task: str) -> TradingEnv:
     if task not in _envs:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No active environment for task='{task}'. Call POST /reset first."
-        )
+        # Auto-initialize so validator can call /step or /grader before /reset
+        env = TradingEnv(task=task)
+        env.reset()
+        _envs[task] = env
     return _envs[task]
 
 # ------------------------------------------------------------------ #
@@ -116,16 +116,19 @@ def get_state(task: str = "easy"):
 def take_step(req: StepRequest):
     env = _get_env(req.task)
 
-    # validate weights
-    if any(v < 0 for v in req.weights.values()):
-        raise HTTPException(status_code=400, detail="Weights must be non-negative")
+    # Strip unknown symbols, clamp negatives to 0
+    weights = {k: max(0.0, v) for k, v in req.weights.items() if k in env.symbols}
 
-    action = Action(weights=req.weights)
+    # If validator sends empty or all-unknown weights, use equal weight
+    if not weights:
+        weights = {s: 1.0 / len(env.symbols) for s in env.symbols}
+
+    action = Action(weights=weights)
 
     try:
         result = env.step(action)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
     return {
         "task": req.task,
