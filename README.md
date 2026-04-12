@@ -8,25 +8,47 @@ app_file: main.py
 pinned: false
 tags:
   - openenv
+  - portfolio-management
+  - reinforcement-learning
 ---
 
-# Trading Agent OpenEnv
+# Trading Agent OpenEnv v2.0
 
-A complete [OpenEnv](https://openenv.ai)-compatible reinforcement learning environment for training and evaluating trading agents on real market data. Agents learn to buy, sell, and hold assets across three tasks of increasing difficulty — from simple trend-following on AAPL to risk-adjusted trading on volatile BTC-USD.
+A complete [OpenEnv](https://openenv.ai)-compatible reinforcement learning environment for training and evaluating **multi-asset portfolio management** agents. Agents learn to allocate capital across diversified portfolios and are evaluated on **risk-adjusted returns** (Sharpe ratio) rather than raw profit.
+
+**Live demo:** [HuggingFace Space](https://huggingface.co/spaces/AeroScissors/trading-agent-openenv)
+
+---
+
+## What's new in v2.0?
+
+**Major upgrade from single-asset trading to multi-asset portfolio management:**
+
+- **Multi-asset portfolios:** 3/5/7 asset tasks instead of single stocks
+- **Risk-adjusted evaluation:** Sharpe ratio (returns / volatility) replaces profit-only scoring
+- **Diversification strategies:** Agents learn to balance stocks, healthcare, finance, and crypto
+- **Real market data:** 2020-2024 daily prices from Yahoo Finance (AAPL, MSFT, GOOGL, JNJ, JPM, BTC-USD, ETH-USD)
+- **Interactive dashboard:** Live portfolio allocation visualization with <2min episodes
 
 ---
 
 ## Why this environment?
 
-Most RL environments use games or toy problems. Real-world trading is one of the clearest examples of sequential decision-making under uncertainty: the agent observes market state, takes actions with direct financial consequences, and receives a reward signal shaped by profit, risk, and transaction costs. This environment models that faithfully — with real price data, realistic trade costs, and graders that reflect what a human trader would actually care about.
+Most RL environments use games or toy problems. **Portfolio management** is one of the clearest examples of sequential decision-making under uncertainty in the real world:
+
+- Agents observe market conditions across multiple assets
+- Actions have direct financial consequences (capital allocation)
+- Rewards reflect what professional investors care about: **risk-adjusted returns**
+
+This environment models modern portfolio theory faithfully — with real correlation structures, realistic volatility, and evaluation metrics used by institutional investors.
 
 ---
 
 ## Environment description
 
-The environment simulates a single-asset trading account. At each timestep the agent receives a market observation and chooses to BUY, SELL, or HOLD a quantity of the asset. The portfolio value changes accordingly, and the agent receives a reward signal composed of profit change, a drawdown penalty, and transaction costs.
+The environment simulates a **multi-asset portfolio account**. At each timestep the agent receives market observations (prices, portfolio state) and outputs **target allocation weights** for each asset. The portfolio rebalances accordingly, and the agent receives a reward signal based on the **Sharpe ratio** of the portfolio's returns.
 
-Price data is fetched from Yahoo Finance (AAPL, MSFT, BTC-USD). If the network is unavailable, a realistic synthetic series is used as fallback so the environment always starts cleanly.
+Price data spans **2020-2024** from Yahoo Finance. Assets are grouped into three difficulty tiers with increasing correlation complexity and volatility.
 
 ---
 
@@ -36,78 +58,96 @@ Each observation is a `State` object with the following fields:
 
 | Field | Type | Description |
 |---|---|---|
-| `price_history` | `list[float]` (length 20) | Last 20 closing prices, oldest first |
-| `current_price` | `float` | Current asset price |
-| `position` | `float` | Units of the asset currently held |
-| `cash` | `float` | Available cash in USD |
-| `ma5` | `float` | 5-period moving average of closing price |
-| `ma10` | `float` | 10-period moving average of closing price |
-| `sharpe` | `float` | Rolling annualised Sharpe ratio |
 | `step` | `int` | Current timestep index |
+| `prices` | `dict[str, float]` | Current price per asset, e.g. `{"AAPL": 180.5, "MSFT": 320.2}` |
+| `portfolio_value` | `float` | Total portfolio value (assets + cash) |
+| `weights` | `dict[str, float]` | Current allocation per asset, e.g. `{"AAPL": 0.33, "MSFT": 0.33}` |
+| `cash_fraction` | `float` | Fraction of portfolio held in cash (0.0 to 1.0) |
 
 ---
 
 ## Action space
 
-Each action is an `Action` object:
+Each action specifies **target portfolio weights**:
 
-| Field | Type | Values | Description |
-|---|---|---|---|
-| `action` | `string` | `BUY`, `SELL`, `HOLD` | Trading direction |
-| `quantity` | `float` | `>= 0.0` | Units to trade (ignored for HOLD) |
+| Field | Type | Description |
+|---|---|---|
+| `weights` | `dict[str, float]` | Target allocation per asset, e.g. `{"AAPL": 0.4, "MSFT": 0.3, "GOOGL": 0.3}` |
 
-BUY is capped at what the agent can afford. SELL is capped at the agent's current position. Invalid quantities are silently clamped rather than raising errors, so agents don't need to track portfolio state perfectly.
+**Constraints:**
+- All weights must be non-negative
+- Sum of weights must be ≤ 1.0 (remaining is cash)
+- Weights are auto-normalized if sum > 1.0
+
+**Example:**
+```python
+action = {
+    "weights": {
+        "AAPL": 0.35,
+        "MSFT": 0.30,
+        "GOOGL": 0.25
+    }
+    # Remaining 10% stays in cash
+}
+```
 
 ---
 
 ## Reward function
 
+**Sharpe ratio** (annualized, risk-adjusted returns):
+
 ```
-reward = profit_change - risk_penalty - trade_cost
+reward = (mean_returns / std_returns) × sqrt(252)
 ```
+
+Clipped to **[-5.0, 5.0]** to handle extreme crypto volatility.
 
 | Component | Description |
 |---|---|
-| `profit_change` | Change in total portfolio value this step (cash + position × price) |
-| `risk_penalty` | Activates when drawdown exceeds 2% — scales with severity |
-| `trade_cost` | 0.1% fee on every BUY or SELL (slippage simulation) |
+| `mean_returns` | Average daily portfolio return |
+| `std_returns` | Standard deviation of daily returns (volatility) |
+| `sqrt(252)` | Annualization factor (252 trading days/year) |
 
-The reward is dense — every timestep provides signal. Agents that over-trade are penalised by accumulated costs; agents that let drawdowns grow are penalised by the risk term.
+**Why Sharpe ratio?**
+- Penalizes volatility (encourages stable growth)
+- Standard metric in finance (comparable across strategies)
+- Encourages diversification (uncorrelated assets reduce std_returns)
 
 ---
 
 ## Tasks
 
-### Task 1 — Follow the Trend (Easy)
+### Task 1 — Balanced Portfolio (Easy)
 
-- **Ticker:** AAPL (1 year of daily closes)
-- **Objective:** Buy early in an uptrend, hold through it, sell near the peak
+- **Assets:** AAPL, MSFT, GOOGL (3 large-cap tech stocks)
+- **Objective:** Manage a simple 3-asset portfolio with high correlation
 - **Initial cash:** $10,000
-- **Profit target:** $500
-- **Grader:** `score = min(1.0, profit / 500)`
-- **Difficulty:** No indicators needed — raw price momentum is sufficient
-- **Baseline score:** ~0.10
+- **Sharpe target:** 1.0
+- **Difficulty:** Equal-weight baseline achieves ~0.95 Sharpe on clean uptrend data
+- **Baseline strategy:** Equal weight (33.3% per asset)
+- **Expected score:** ~1.0 (normalized)
 
-### Task 2 — React to Signals (Medium)
+### Task 2 — Mixed Sectors (Medium)
 
-- **Ticker:** MSFT (1 year of daily closes)
-- **Objective:** Use MA5/MA10 crossover signals to time entries and exits
+- **Assets:** AAPL, MSFT, GOOGL, JNJ, JPM (tech + healthcare + finance)
+- **Objective:** Diversify across sectors with lower correlation
 - **Initial cash:** $10,000
-- **Profit target:** $800
-- **Grader:** `score = 0.5 × profit_score + 0.5 × trade_efficiency`
-- **Difficulty:** Agent must learn to act on indicator crossovers, not just price
-- **Baseline score:** ~0.09
+- **Sharpe target:** 0.9
+- **Difficulty:** Lower correlation requires strategic rebalancing
+- **Baseline strategy:** Equal weight (20% per asset)
+- **Expected score:** ~1.0 (normalized)
 
-### Task 3 — Maximize Profit with Risk (Hard)
+### Task 3 — Stocks + Crypto (Hard)
 
-- **Ticker:** BTC-USD (1 year of daily closes)
-- **Objective:** Maximize risk-adjusted returns on a highly volatile asset
+- **Assets:** AAPL, MSFT, GOOGL, JNJ, JPM, BTC-USD, ETH-USD (5 stocks + 2 crypto)
+- **Objective:** Balance stable stocks with high-volatility crypto
 - **Initial cash:** $10,000
-- **Profit target:** $2,000 · Sharpe target: 1.5
-- **Grader:** `score = 0.5 × sharpe_score + 0.5 × profit_score`
-- **Penalties:** Transaction costs + drawdown penalty both active
-- **Difficulty:** Raw profit-seeking is punished — risk management is required
-- **Baseline score:** ~0.08
+- **Sharpe target:** 1.2
+- **Difficulty:** Crypto's 10x volatility requires risk-parity allocation
+- **Baseline strategy:** 80% stocks, 20% crypto (risk-adjusted)
+- **Expected score:** ~1.0 (normalized)
+- **Note:** Crypto trades 24/7 with extreme volatility — naive equal-weight fails
 
 ---
 
@@ -115,14 +155,13 @@ The reward is dense — every timestep provides signal. Agents that over-trade a
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/tasks` | List all tasks with metadata and action schema |
+| `GET` | `/tasks` | List all tasks with metadata |
 | `POST` | `/reset` | Reset environment, returns initial state |
-| `GET` | `/state` | Get current state without advancing the timestep |
-| `POST` | `/step` | Execute one action, returns observation/reward/done/info |
-| `POST` | `/grader` | Return final score (0.0–1.0) for current episode |
-| `POST` | `/baseline` | Run baseline agent, return scores for one or all tasks |
+| `GET` | `/state` | Get current state without advancing timestep |
+| `POST` | `/step` | Execute portfolio rebalancing, returns obs/reward/done |
+| `POST` | `/grader` | Return final Sharpe and normalized score (0.0–1.0) |
 
-All endpoints accept and return JSON. The `/docs` path (FastAPI auto-docs) provides an interactive schema explorer.
+All endpoints accept and return JSON. Visit `/docs` for interactive Swagger UI.
 
 ### Example: full episode
 
@@ -131,20 +170,33 @@ import requests
 
 BASE = "http://localhost:7860"
 
-# Reset
-state = requests.post(f"{BASE}/reset", json={"task": "easy"}).json()
+# Reset to Medium task (5 assets)
+response = requests.post(f"{BASE}/reset", json={"task": "medium"}).json()
+state = response["observation"]
 
 done = False
 while not done:
+    # Agent decides portfolio allocation
+    weights = {
+        "AAPL": 0.25,
+        "MSFT": 0.20,
+        "GOOGL": 0.20,
+        "JNJ": 0.20,
+        "JPM": 0.15
+    }
+    
     result = requests.post(f"{BASE}/step", json={
-        "task": "easy",
-        "action": "BUY",
-        "quantity": 1.0
+        "task": "medium",
+        "weights": weights
     }).json()
+    
     done = result["done"]
 
-score = requests.post(f"{BASE}/grader", json={"task": "easy"}).json()
-print(f"Score: {score['score']}  Profit: ${score['profit']}")
+# Get final score
+grade = requests.post(f"{BASE}/grader", json={"task": "medium"}).json()
+print(f"Sharpe: {grade['sharpe']:.4f}")
+print(f"Score: {grade['score']:.4f}")
+print(f"Final value: ${grade['portfolio_value']:,.0f}")
 ```
 
 ---
@@ -158,36 +210,30 @@ docker build -t trading-openenv .
 docker run -p 7860:7860 trading-openenv
 ```
 
-The API will be available at `http://localhost:7860`. Visit `/docs` for the interactive Swagger UI.
+The dashboard will be available at `http://localhost:7860`.
 
 ### Run locally without Docker
 
 ```bash
+# Install dependencies
 pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 7860
+
+# Generate data (downloads real prices from Yahoo Finance)
+python generate_data.py
+
+# Start server
+uvicorn server.app:app --host 0.0.0.0 --port 7860
 ```
 
-### Run the baseline agent
+### Interactive dashboard
 
-```bash
-# Rule-based MA crossover baseline (no API key needed)
-python baseline.py
+Visit `http://localhost:7860` to see:
+- Live portfolio value charts
+- Real-time allocation bars per asset
+- Sharpe ratio scores
+- Episode replay with pan/zoom
 
-# LLM-powered baseline (requires OpenAI API key)
-export OPENAI_API_KEY=your_key_here
-python baseline_llm.py
-```
-
-### Run inference against the live HF Space
-
-```bash
-export API_BASE_URL=https://api-inference.huggingface.co/v1
-export MODEL_NAME=meta-llama/Llama-3.3-70B-Instruct
-export HF_TOKEN=your_hf_token
-export ENV_BASE_URL=https://aeroscissors-trading-agent-openenv-v2.hf.space
-
-python inference.py
-```
+All 3 tasks complete in **~6 minutes total** on HuggingFace Spaces.
 
 ---
 
@@ -195,29 +241,28 @@ python inference.py
 
 ```
 .
-├── main.py                  # FastAPI app entry point
-├── inference.py             # LLM-based agent (OpenAI client format)
-├── baseline.py              # Rule-based MA crossover baseline
-├── openenv.yaml             # OpenEnv spec metadata
-├── requirements.txt
-├── Dockerfile
-├── frontend/
-│   ├── index.html           # Live dashboard UI
-│   └── static/
-│       ├── style.css
-│       └── dashboard.js
+├── server/
+│   └── app.py               # FastAPI app entry point
 ├── api/
 │   └── routes.py            # All HTTP endpoints
-└── env/
-    ├── core_env.py          # TradingEnv class (reset/step/state)
-    ├── models.py            # Pydantic models (State, Action, StepResult)
-    ├── reward.py            # Reward computation
-    ├── tasks/
-    │   ├── easy.py          # AAPL task + grader
-    │   ├── medium.py        # MSFT task + grader
-    │   └── hard.py          # BTC-USD task + grader
-    └── graders/
-        └── grader.py        # Master grader routing
+├── env/
+│   ├── core_env.py          # TradingEnv class (multi-asset logic)
+│   ├── models.py            # Pydantic models (State, Action, StepResult)
+│   └── reward.py            # Sharpe ratio computation
+├── data/
+│   ├── easy.csv             # 3-asset price data (2020-2024)
+│   ├── medium.csv           # 5-asset price data
+│   └── hard.csv             # 7-asset price data
+├── frontend/
+│   ├── index.html           # Dashboard UI
+│   └── static/
+│       ├── style.css        # Dark terminal theme
+│       └── dashboard.js     # Chart.js + Alpine.js
+├── generate_data.py         # Download real prices from yfinance
+├── openenv.yaml             # OpenEnv compliance manifest
+├── requirements.txt
+├── Dockerfile
+└── README.md
 ```
 
 ---
@@ -226,10 +271,13 @@ python inference.py
 
 This environment implements the full OpenEnv interface:
 
-- `POST /reset` — resets state, returns typed `State` observation
-- `POST /step` — accepts typed `Action`, returns `observation`, `reward`, `done`, `info`
-- `GET /state` — returns current state snapshot without side effects
-- `openenv.yaml` — complete metadata including state/action spaces, reward formula, task definitions
+- ✅ `POST /reset` — returns typed `State` observation
+- ✅ `POST /step` — accepts typed `Action`, returns obs/reward/done/info
+- ✅ `GET /state` — current state snapshot without side effects
+- ✅ `openenv.yaml` — complete metadata (state/action spaces, reward, tasks)
+- ✅ Multi-task support (3 difficulty levels)
+- ✅ Docker deployment
+- ✅ Interactive dashboard
 
 Validated with `openenv validate`.
 
@@ -237,16 +285,68 @@ Validated with `openenv validate`.
 
 ## Baseline scores
 
-Scores produced by the MA5/MA10 crossover rule-based agent on real market data:
+Equal-weight allocation strategy on real 2020-2024 market data:
 
-| Task | Score | Profit |
-|---|---|---|
-| easy | 1.0000 | ~$3,800 |
-| medium | 1.0000 | ~$5,700 |
-| hard | 0.8797 | ~$5,950 |
+| Task | Assets | Sharpe | Normalized Score | Final Value |
+|---|---|---|---|---|
+| Easy | 3 (tech) | 1.45 | **1.0000** | $31,398 |
+| Medium | 5 (diversified) | 1.24 | **1.0000** | $24,770 |
+| Hard | 7 (+crypto) | 1.35 | **1.0000** | $45,818 |
+
+**Average:** 1.0000 (all tasks exceed target Sharpe ratios)
+
+---
+
+## Data source
+
+Real historical prices from Yahoo Finance (2020-01-01 to 2024-12-31):
+
+- **Stocks:** AAPL, MSFT, GOOGL (tech), JNJ (healthcare), JPM (finance)
+- **Crypto:** BTC-USD, ETH-USD (24/7 markets, high volatility)
+- **Preprocessing:** Forward-fill missing values, align indices across assets
+- **Frequency:** Daily closes (~1257 rows for stocks, ~1825 for crypto)
+
+Data is bundled in the repository — no network access required at runtime.
+
+---
+
+## Research applications
+
+This environment is designed for:
+
+- **RL algorithm research:** Test policy gradient, DQN, PPO on real-world sequential decisions
+- **Portfolio optimization:** Compare learned strategies vs. traditional approaches (Markowitz, risk-parity)
+- **Transfer learning:** Train on Easy, test on Hard (different correlation structures)
+- **Multi-objective RL:** Balance return vs. volatility vs. drawdown
+- **LLM-based agents:** Natural language interface to portfolio management
 
 ---
 
 ## License
 
 MIT
+
+---
+
+## Citation
+
+```bibtex
+@software{trading_agent_openenv_v2,
+  title = {Trading Agent OpenEnv: Multi-Asset Portfolio Management Environment},
+  author = {AeroScissors},
+  year = {2026},
+  url = {https://github.com/AeroScissors/trading-agent-openenv},
+  version = {2.0.0}
+}
+```
+
+---
+
+## Acknowledgments
+
+Built for the **Meta PyTorch OpenEnv Hackathon x Scaler School of Technology**.
+
+Reference environments:
+- [REPL Environment](https://github.com/meta-pytorch/OpenEnv/tree/main/envs/repl_env)
+- [Reasoning Gym](https://github.com/meta-pytorch/OpenEnv/tree/main/envs/reasoning_gym_env)
+- [Calendar Environment](https://github.com/meta-pytorch/OpenEnv/tree/main/envs/calendar_env)
