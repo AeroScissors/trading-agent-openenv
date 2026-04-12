@@ -222,14 +222,16 @@ function dashboard() {
 
           const portfolioValue = nextObs.portfolio_value ?? 10000;
 
-          // Update chart + memory
-          chart.data.labels.push(step);
+          // Update memory
           mem.labels.push(step);
-
-          chart.data.datasets[0].data.push(portfolioValue);
           mem.values.push(portfolioValue);
 
-          chart.update('none');
+          // Update chart every 50 steps (not every step - much faster!)
+          if (step % 50 === 0 || done) {
+            chart.data.labels = [...mem.labels];
+            chart.data.datasets[0].data = [...mem.values];
+            chart.update('none');
+          }
 
           // Update current allocation display
           const allocArray = Object.entries(nextObs.weights || {})
@@ -240,7 +242,11 @@ function dashboard() {
           mem.allocation = allocArray;
 
           this.progress = Math.min(99, Math.round((step / maxSteps) * 100));
-          await new Promise(r => setTimeout(r, 8));
+          
+          // Only delay every 10 steps to speed up
+          if (step % 10 === 0) {
+            await new Promise(r => setTimeout(r, 1));
+          }
         }
 
         t.steps = step;
