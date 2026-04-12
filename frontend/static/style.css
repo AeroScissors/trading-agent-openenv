@@ -473,3 +473,54 @@ body::after {
 body {
   filter: contrast(1.1) brightness(1.05);
 }
+
+/* ── PORTFOLIO ALLOCATION TABLE ────────────────────────────────────── */
+.portfolio-table {
+  height: 72px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bc) transparent;
+}
+
+.alloc-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 50px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  margin-bottom: 3px;
+  font-size: 11px;
+  border-left: 2px solid var(--cyan);
+  background: rgba(0, 255, 231, 0.05);
+}
+
+.alloc-symbol {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  color: var(--cyan);
+  letter-spacing: 0.08em;
+  font-size: 10px;
+}
+
+.alloc-bar-wrap {
+  height: 8px;
+  background: #0a0015;
+  border: 1px solid #2a004a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.alloc-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  box-shadow: 0 0 6px var(--cyan);
+  transition: width 0.3s ease;
+}
+
+.alloc-pct {
+  text-align: right;
+  color: #999;
+  font-size: 10px;
+  font-family: 'Orbitron', sans-serif;
+}

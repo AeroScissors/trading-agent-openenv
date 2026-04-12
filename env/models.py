@@ -1,21 +1,21 @@
-from pydantic import BaseModel
-from typing import List, Dict, Any
+# File: env/models.py
+
+from pydantic import BaseModel, Field
+from typing import Dict, Any
 
 
 class State(BaseModel):
-    price_history: List[float]
-    current_price: float
-    position: float
-    cash: float
-    ma5: float
-    ma10: float
-    sharpe: float
     step: int
+    prices: Dict[str, float]                # {"AAPL": 180.2, "MSFT": 320.1}
+    portfolio_value: float                 # total portfolio value
+    weights: Dict[str, float]              # {"AAPL": 0.4, "MSFT": 0.3}
+    cash_fraction: float                   # remaining cash (0 → 1)
 
 
 class Action(BaseModel):
-    action: str
-    quantity: float
+    weights: Dict[str, float] = Field(default_factory=dict)
+    # Example:
+    # {"AAPL": 0.4, "MSFT": 0.3}
 
 
 class StepResult(BaseModel):

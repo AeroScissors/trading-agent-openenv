@@ -16,7 +16,7 @@
     <div class="header">
       <div>
         <div class="logo">TRADING AGENT DASHBOARD</div>
-        <div class="sublogo">AI SIMULATIONS · TRACKING PERFORMANCE</div>
+        <div class="sublogo">MULTI-ASSET PORTFOLIO · RISK-ADJUSTED PERFORMANCE</div>
       </div>
       <div class="status-wrap" :class="{ offline: !apiOnline }">
         <span class="dot" :class="apiOnline ? 'dot-green' : 'dot-red'"></span>
@@ -43,7 +43,7 @@
 
     <div class="chart-section">
       <div class="chart-header">
-        <div class="chart-title">EPISODE REPLAY</div>
+        <div class="chart-title">PORTFOLIO VALUE</div>
         <div class="chart-hint">SCROLL TO ZOOM · DRAG TO PAN · DOUBLE-CLICK TO RESET</div>
         <div class="task-tabs">
           <template x-for="t in tasks" :key="t.id">
@@ -60,16 +60,14 @@
         <canvas id="priceChart"></canvas>
       </div>
       <div class="legend">
-        <div class="leg-item"><div class="leg-dot" style="background:#39ff14;box-shadow:0 0 4px #39ff14"></div>BUY</div>
-        <div class="leg-item"><div class="leg-dot" style="background:#ff3333;box-shadow:0 0 4px #ff3333"></div>SELL</div>
-        <div class="leg-item"><div class="leg-dot" style="background:#00ffe7;box-shadow:0 0 4px #00ffe7"></div>PRICE</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#00ffe7;box-shadow:0 0 4px #00ffe7"></div>PORTFOLIO VALUE</div>
       </div>
     </div>
 
     <div class="bottom-row">
 
       <div class="avg-card">
-        <div class="avg-label">AVERAGE SCORE</div>
+        <div class="avg-label">AVERAGE SHARPE</div>
         <div class="avg-val" x-text="avgScore !== null ? avgScore.toFixed(4) : '—'"></div>
         <div class="avg-sub">ACROSS 3 TASKS · LAST RUN</div>
 
@@ -99,27 +97,25 @@
       </div>
 
       <div class="feed">
-        <div class="feed-title">ACTION LOG</div>
+        <div class="feed-title">PORTFOLIO ALLOCATION</div>
 
-        <div class="feed-list">
-          <template x-if="actionLog.length === 0">
+        <div class="portfolio-table">
+          <template x-if="currentAllocation.length === 0">
             <div class="feed-empty">
-              No actions yet. Run the agent.
+              No allocation yet. Run the agent.
             </div>
           </template>
-          <template x-for="(item, i) in actionLog" :key="i">
-            <div class="feed-item" :class="'act-' + item.action.toLowerCase() + '-row'">
-              <span class="feed-step" x-text="'step ' + item.step"></span>
-              <span
-                class="feed-action"
-                :class="'act-' + item.action.toLowerCase()"
-                x-text="item.action"
-              ></span>
-              <span
-                class="feed-reward"
-                :style="'color:' + (item.reward >= 0 ? 'var(--green)' : 'var(--red)')"
-                x-text="(item.reward >= 0 ? '+' : '') + item.reward.toFixed(4)"
-              ></span>
+          <template x-if="currentAllocation.length > 0">
+            <div>
+              <template x-for="item in currentAllocation" :key="item.symbol">
+                <div class="alloc-row">
+                  <span class="alloc-symbol" x-text="item.symbol"></span>
+                  <div class="alloc-bar-wrap">
+                    <div class="alloc-bar" :style="'width:' + (item.weight * 100) + '%'"></div>
+                  </div>
+                  <span class="alloc-pct" x-text="(item.weight * 100).toFixed(1) + '%'"></span>
+                </div>
+              </template>
             </div>
           </template>
         </div>
@@ -131,9 +127,9 @@
             :disabled="running"
             @change="switchTask(activeTask)"
           >
-            <option value="easy">EASY · AAPL</option>
-            <option value="medium">MEDIUM · MSFT</option>
-            <option value="hard">HARD · BTC-USD</option>
+            <option value="easy">EASY (3 assets)</option>
+            <option value="medium">MEDIUM (5 assets)</option>
+            <option value="hard">HARD (7 assets)</option>
           </select>
           <button class="run-btn" @click="runAgent()" :disabled="running">
             <span x-text="running ? 'RUNNING...' : 'RUN AGENT'"></span>
@@ -166,7 +162,8 @@
       d.segmentStyle = function(task, index) {
         if (task.score === null) return '';
 
-        const filled = Math.floor(task.score * d.TOTAL_SEGMENTS);
+        const normalized = Math.max(0, Math.min(1, task.score));
+        const filled = Math.floor(normalized * d.TOTAL_SEGMENTS);
 
         if (index < filled) {
           let color;

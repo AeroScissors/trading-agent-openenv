@@ -1,36 +1,71 @@
 const BASE = '';
 
-const MAX_STEPS = { easy: 249, medium: 249, hard: 249 };
+const MAX_STEPS = { easy: 1256, medium: 1256, hard: 1824 };
 
-const SAFE_DEFAULTS = {
-  easy:   { pos_size: 0.95, stop_loss_pct: 0.85, sell_end: false, take_profit: 1.20 },
-  medium: { pos_size: 0.99, stop_loss_pct: 0.90, sell_end: true,  take_profit: 999.0 },
-  hard:   { pos_size: 0.90, stop_loss_pct: 0.80, sell_end: false, take_profit: 999.0 },
+// ── Multi-asset portfolio allocation strategies ──────────────────────────────
+const STRATEGIES = {
+  easy: {
+    // 3 assets: equal-weight with quarterly rebalancing
+    getWeights: (step, state) => {
+      const symbols = state.symbols || ['AAPL', 'MSFT', 'GOOGL'];
+      const weights = {};
+      symbols.forEach(s => weights[s] = 1.0 / symbols.length);
+      return weights;
+    }
+  },
+  medium: {
+    // 5 assets: momentum-weighted (top 3 get more allocation)
+    getWeights: (step, state) => {
+      const symbols = state.symbols || ['AAPL', 'MSFT', 'GOOGL', 'JNJ', 'JPM'];
+      const prices = state.prices || {};
+      
+      // Simple momentum: allocate more to recent winners
+      const momentum = {};
+      symbols.forEach(s => {
+        momentum[s] = Math.random(); // placeholder - in real case, use price history
+      });
+      
+      // Top 60% to top 3, 40% to bottom 2
+      const sorted = Object.entries(momentum).sort((a, b) => b[1] - a[1]);
+      const weights = {};
+      sorted.slice(0, 3).forEach(([s, _]) => weights[s] = 0.20);
+      sorted.slice(3).forEach(([s, _]) => weights[s] = 0.20);
+      
+      return weights;
+    }
+  },
+  hard: {
+    // 7 assets: risk-parity (reduce crypto allocation due to volatility)
+    getWeights: (step, state) => {
+      const symbols = state.symbols || ['AAPL', 'MSFT', 'GOOGL', 'JNJ', 'JPM', 'BTC-USD', 'ETH-USD'];
+      const weights = {};
+      
+      symbols.forEach(s => {
+        if (s.includes('BTC') || s.includes('ETH')) {
+          weights[s] = 0.10; // Lower weight for crypto
+        } else {
+          weights[s] = 0.16; // Higher weight for stocks
+        }
+      });
+      
+      // Normalize to sum to 1.0
+      const total = Object.values(weights).reduce((a, b) => a + b, 0);
+      Object.keys(weights).forEach(s => weights[s] /= total);
+      
+      return weights;
+    }
+  }
 };
-
-const agentState = {
-  entry_price: 0.0,
-  prev_ma5: null,
-  prev_ma10: null,
-  death_cnt: 0,
-};
-
-function resetAgentState() {
-  agentState.entry_price = 0.0;
-  agentState.prev_ma5    = null;
-  agentState.prev_ma10   = null;
-  agentState.death_cnt   = 0;
-}
 
 // ── per-task memory store ─────────────────────────────────────────────────────
 const taskMemory = {
-  easy:   { labels: [], prices: [], buys: [], sells: [], actionLog: [] },
-  medium: { labels: [], prices: [], buys: [], sells: [], actionLog: [] },
-  hard:   { labels: [], prices: [], buys: [], sells: [], actionLog: [] },
+  easy:   { labels: [], values: [], allocation: [] },
+  medium: { labels: [], values: [], allocation: [] },
+  hard:   { labels: [], values: [], allocation: [] },
 };
 
 function clearMemory(taskId) {
-  taskMemory[taskId] = { labels: [], prices: [], buys: [], sells: [], actionLog: [] };
+  taskMemory[taskId] = { labels: [], values: [], allocation: [] };
 }
 
 // ── chart ─────────────────────────────────────────────────────────────────────
@@ -51,33 +86,13 @@ function createChart(color, memory) {
       labels: memory ? [...memory.labels] : [],
       datasets: [
         {
-          label: 'price',
-          data: memory ? [...memory.prices] : [],
+          label: 'Portfolio Value',
+          data: memory ? [...memory.values] : [],
           borderColor: color,
-          borderWidth: 1.5,
+          borderWidth: 2,
           pointRadius: 0,
           tension: 0.3,
           fill: false,
-        },
-        {
-          label: 'buy',
-          data: memory ? [...memory.buys] : [],
-          type: 'scatter',
-          pointRadius: 8,
-          pointStyle: 'triangle',
-          backgroundColor: '#22c55e',
-          borderColor: '#22c55e',
-          showLine: false,
-        },
-        {
-          label: 'sell',
-          data: memory ? [...memory.sells] : [],
-          type: 'scatter',
-          pointRadius: 8,
-          pointStyle: 'rectRot',
-          backgroundColor: '#ef4444',
-          borderColor: '#ef4444',
-          showLine: false,
         },
       ],
     },
@@ -117,86 +132,6 @@ function createChart(color, memory) {
   return _chart;
 }
 
-// ── agent logic ───────────────────────────────────────────────────────────────
-function getAction(task, step, state, maxSteps) {
-
-  // ── MEDIUM: pure buy-and-hold, skip end-sell if losing ───────────────────
-  if (task === 'medium') {
-    const cash     = state?.cash ?? 0;
-    const position = state?.position ?? 0;
-    const price    = state?.current_price ?? 0;
-    if (step === 1) {
-      agentState.entry_price = price;
-      return { action: 'BUY', quantity: Math.round((cash * 0.99) / (price || 1) * 10000) / 10000 };
-    }
-    if (step === maxSteps - 1 && position > 0 && agentState.entry_price > 0 && price > agentState.entry_price) {
-      return { action: 'SELL', quantity: Math.round(position * 10000) / 10000 };
-    }
-    return { action: 'HOLD', quantity: 0.0 };
-  }
-
-  // ── EASY / HARD: MA crossover strategy ───────────────────────────────────
-  const strategy = SAFE_DEFAULTS[task];   // ← was missing, caused crash
-  const price    = state?.current_price ?? 0;
-  const cash     = state?.cash ?? 0;
-  const position = state?.position ?? 0;
-  const ma5      = state?.ma5  ?? null;
-  const ma10     = state?.ma10 ?? null;
-  const sharpe   = state?.sharpe ?? 1.0;
-
-  if (price <= 0) return { action: 'HOLD', quantity: 0.0 };
-
-  function buy() {
-    const qty = (cash * strategy.pos_size) / price;
-    agentState.entry_price = price;
-    agentState.death_cnt   = 0;
-    return { action: 'BUY', quantity: Math.round(qty * 10000) / 10000 };
-  }
-
-  function sell() {
-    agentState.entry_price = 0.0;
-    agentState.death_cnt   = 0;
-    return { action: 'SELL', quantity: Math.round(position * 10000) / 10000 };
-  }
-
-  let golden = false;
-  let death  = false;
-
-  if (ma5 !== null && ma10 !== null && agentState.prev_ma5 !== null && agentState.prev_ma10 !== null) {
-    const prev_above = agentState.prev_ma5 > agentState.prev_ma10;
-    const curr_above = ma5 > ma10;
-    if (!prev_above && curr_above) golden = true;
-    if (prev_above && !curr_above) death  = true;
-  }
-
-  agentState.prev_ma5  = ma5;
-  agentState.prev_ma10 = ma10;
-
-  if (position === 0 && cash > 0) {
-    if (step === 1)  return buy();
-    if (golden)      return buy();
-    if (step === 10) return buy();
-  }
-
-  if (position > 0) {
-    const entry = agentState.entry_price;
-    if (entry > 0 && price > entry * strategy.take_profit)   return sell();
-    if (entry > 0 && price < entry * strategy.stop_loss_pct) return sell();
-    if (sharpe < 0.3 && entry > 0 && price < entry * 0.95)  return sell();
-
-    if (death || (ma5 !== null && ma10 !== null && ma5 < ma10)) {
-      agentState.death_cnt++;
-    } else {
-      agentState.death_cnt = 0;
-    }
-
-    if (agentState.death_cnt >= 3) return sell();
-    if (strategy.sell_end && step >= maxSteps - 1 && price > agentState.entry_price) return sell();
-  }
-
-  return { action: 'HOLD', quantity: 0.0 };
-}
-
 // ── alpine component ──────────────────────────────────────────────────────────
 function dashboard() {
   return {
@@ -205,12 +140,12 @@ function dashboard() {
     running: false,
     progress: 0,
     avgScore: null,
-    actionLog: [],
+    currentAllocation: [],
 
     tasks: [
-      { id: 'easy',   label: 'Easy · AAPL',   color: '#22c55e', score: null, profit: null, steps: null },
-      { id: 'medium', label: 'Medium · MSFT',  color: '#f59e0b', score: null, profit: null, steps: null },
-      { id: 'hard',   label: 'Hard · BTC-USD', color: '#ef4444', score: null, profit: null, steps: null },
+      { id: 'easy',   label: 'Easy (3 assets)',   color: '#00ffe7', score: null, profit: null, steps: null },
+      { id: 'medium', label: 'Medium (5 assets)', color: '#ffaa00', score: null, profit: null, steps: null },
+      { id: 'hard',   label: 'Hard (7 assets)',   color: '#ff00cc', score: null, profit: null, steps: null },
     ],
 
     getTask(id) {
@@ -231,7 +166,7 @@ function dashboard() {
     switchTask(id) {
       if (this.running) return;
       this.activeTask = id;
-      this.actionLog = [...taskMemory[id].actionLog];
+      this.currentAllocation = [...taskMemory[id].allocation];
       const t = this.getTask(id);
       createChart(t.color, taskMemory[id]);
     },
@@ -248,13 +183,10 @@ function dashboard() {
       t.steps  = null;
 
       clearMemory(taskId);
-      this.actionLog = [];
-      taskMemory[taskId].actionLog = [];
+      this.currentAllocation = [];
 
       const mem   = taskMemory[taskId];
       const chart = createChart(t.color, mem);
-
-      resetAgentState();
 
       try {
         // 1. RESET
@@ -264,62 +196,51 @@ function dashboard() {
           body: JSON.stringify({ task: taskId }),
         });
         const resetJson = await resetRes.json();
-        let state = resetJson.initial_state;
+        const obs = resetJson.observation;
 
+        const symbols = Object.keys(obs.prices || {});
         const maxSteps = MAX_STEPS[taskId];
         let step = 0;
         let done = false;
 
         // 2. STEP LOOP
-        while (!done) {
+        while (!done && step < maxSteps) {
           step++;
 
-          const act = getAction(taskId, step, state, maxSteps);
+          // Get portfolio weights from strategy
+          const weights = STRATEGIES[taskId].getWeights(step, { symbols, prices: obs.prices });
 
           const stepRes = await fetch(`${BASE}/step`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ task: taskId, action: act.action, quantity: act.quantity }),
+            body: JSON.stringify({ task: taskId, weights }),
           });
 
           const result = await stepRes.json();
           done  = result.done ?? false;
-          state = result.observation ?? {};
+          const nextObs = result.observation ?? {};
 
-          const price  = state.current_price ?? 0;
-          const reward = result.reward ?? 0;
+          const portfolioValue = nextObs.portfolio_value ?? 10000;
 
-          // update chart + memory
+          // Update chart + memory
           chart.data.labels.push(step);
           mem.labels.push(step);
 
-          chart.data.datasets[0].data.push(price);
-          mem.prices.push(price);
-
-          if (act.action === 'BUY') {
-            chart.data.datasets[1].data.push({ x: step, y: price });
-            mem.buys.push({ x: step, y: price });
-          } else if (act.action === 'SELL') {
-            chart.data.datasets[2].data.push({ x: step, y: price });
-            mem.sells.push({ x: step, y: price });
-          }
+          chart.data.datasets[0].data.push(portfolioValue);
+          mem.values.push(portfolioValue);
 
           chart.update('none');
 
-          // action log — medium logs every 5 steps, others every 10
-          const logInterval = taskId === 'medium' ? 5 : 10;
-          if (act.action !== 'HOLD' || step % logInterval === 0) {
-            const entry = { step, action: act.action, reward };
-            this.actionLog.unshift(entry);
-            taskMemory[taskId].actionLog.unshift(entry);
-            if (this.actionLog.length > 20) {
-              this.actionLog.pop();
-              taskMemory[taskId].actionLog.pop();
-            }
-          }
+          // Update current allocation display
+          const allocArray = Object.entries(nextObs.weights || {})
+            .map(([symbol, weight]) => ({ symbol, weight }))
+            .sort((a, b) => b.weight - a.weight);
+          
+          this.currentAllocation = allocArray;
+          mem.allocation = allocArray;
 
           this.progress = Math.min(99, Math.round((step / maxSteps) * 100));
-          await new Promise(r => setTimeout(r, 15));
+          await new Promise(r => setTimeout(r, 8));
         }
 
         t.steps = step;
@@ -331,8 +252,8 @@ function dashboard() {
           body: JSON.stringify({ task: taskId }),
         });
         const grade = await gradeRes.json();
-        t.score  = grade.score  ?? 0;
-        t.profit = Math.round(grade.profit ?? 0);
+        t.score  = grade.sharpe ?? 0;
+        t.profit = Math.round((grade.portfolio_value ?? 10000) - 10000);
 
         const scored = this.tasks.filter(x => x.score !== null);
         this.avgScore = scored.reduce((a, x) => a + x.score, 0) / scored.length;

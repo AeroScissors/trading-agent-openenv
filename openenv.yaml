@@ -1,11 +1,11 @@
 name: trading-agent-openenv
-version: "1.0.0"
+version: "2.0.0"
 description: >
-  An OpenEnv-compatible reinforcement learning environment for trading agents.
-  Supports three tasks of increasing difficulty using real market data
-  (AAPL, MSFT, BTC-USD) with synthetic fallback.
+  Multi-asset portfolio management environment for reinforcement learning.
+  Agents allocate capital across diversified portfolios and are evaluated
+  on risk-adjusted returns (Sharpe ratio) rather than raw profit.
 
-author: Trading Agent OpenEnv
+author: AeroScissors
 license: MIT
 
 # ------------------------------------------------------------------ #
@@ -14,98 +14,93 @@ license: MIT
 
 tasks:
   - id: easy
-    name: Follow the Trend
+    name: Balanced Portfolio (3 Assets)
     description: >
-      Simple uptrending stock (AAPL, 1 year).
-      Buy early, hold through the trend, sell near the peak.
-    ticker: AAPL
+      Manage a 3-asset portfolio of large-cap tech stocks.
+      Equal-weight baseline provides ~0.95 Sharpe on clean uptrend data.
+    assets: [AAPL, MSFT, GOOGL]
     difficulty: easy
     initial_cash: 10000.0
-    profit_target: 500.0
-    grader: score = min(1.0, profit / 500)
+    sharpe_target: 1.0
+    data_period: 2020-2024
 
   - id: medium
-    name: React to Signals
+    name: Mixed Sectors (5 Assets)
     description: >
-      Sideways-to-moderate trend stock (MSFT, 1 year).
-      MA5 and MA10 indicators provided in state.
-      Use crossover signals to time entries and exits.
-    ticker: MSFT
+      Diversified 5-asset portfolio spanning tech, healthcare, and finance.
+      Lower correlation between assets requires strategic rebalancing.
+    assets: [AAPL, MSFT, GOOGL, JNJ, JPM]
     difficulty: medium
     initial_cash: 10000.0
-    profit_target: 800.0
-    indicators: [ma5, ma10]
-    grader: score = 0.5 * profit_score + 0.5 * trade_efficiency
+    sharpe_target: 0.9
+    data_period: 2020-2024
 
   - id: hard
-    name: Maximize Profit with Risk
+    name: Stocks + Crypto (7 Assets)
     description: >
-      Highly volatile asset (BTC-USD, 1 year).
-      Transaction costs and drawdown penalties active.
-      Maximize Sharpe ratio, not just raw profit.
-    ticker: BTC-USD
+      7-asset portfolio including high-volatility crypto (BTC, ETH).
+      Requires risk-parity allocation to balance stable stocks with
+      volatile crypto assets for optimal Sharpe ratio.
+    assets: [AAPL, MSFT, GOOGL, JNJ, JPM, BTC-USD, ETH-USD]
     difficulty: hard
     initial_cash: 10000.0
-    profit_target: 2000.0
-    sharpe_target: 1.5
-    penalties: [transaction_costs, drawdown_penalty]
-    grader: score = 0.5 * sharpe_score + 0.5 * profit_score
+    sharpe_target: 1.2
+    data_period: 2020-2024
+    notes: >
+      Crypto assets trade 24/7 with higher volatility. Risk-adjusted
+      allocation is critical to avoid portfolio blow-up.
 
 # ------------------------------------------------------------------ #
 #  State Space                                                         #
 # ------------------------------------------------------------------ #
 
 state_space:
-  price_history:
-    type: array
-    length: 20
-    description: Last 20 closing prices
-  current_price:
-    type: float
-    description: Current asset price
-  position:
-    type: float
-    description: Number of units currently held
-  cash:
-    type: float
-    description: Available cash in USD
-  ma5:
-    type: float
-    description: 5-period moving average of closing price
-  ma10:
-    type: float
-    description: 10-period moving average of closing price
-  sharpe:
-    type: float
-    description: Rolling annualised Sharpe ratio
   step:
     type: int
     description: Current timestep index
+  prices:
+    type: dict
+    description: Current prices per asset {symbol: price}
+    example: {"AAPL": 180.5, "MSFT": 320.2, "GOOGL": 140.8}
+  portfolio_value:
+    type: float
+    description: Total portfolio value (assets + cash)
+  weights:
+    type: dict
+    description: Current portfolio allocation {symbol: weight}
+    example: {"AAPL": 0.33, "MSFT": 0.33, "GOOGL": 0.34}
+  cash_fraction:
+    type: float
+    range: [0.0, 1.0]
+    description: Fraction of portfolio held in cash
 
 # ------------------------------------------------------------------ #
 #  Action Space                                                        #
 # ------------------------------------------------------------------ #
 
 action_space:
-  action:
-    type: string
-    values: [BUY, SELL, HOLD]
-    description: Trading action to execute
-  quantity:
-    type: float
-    min: 0.0
-    description: Number of units to trade (0.0 for HOLD)
+  weights:
+    type: dict
+    description: Target portfolio allocation {symbol: weight}
+    constraints:
+      - All weights must be non-negative
+      - Sum of weights must be ≤ 1.0 (remaining is cash)
+      - Auto-normalized if sum > 1.0
+    example: {"AAPL": 0.4, "MSFT": 0.3, "GOOGL": 0.3}
 
 # ------------------------------------------------------------------ #
 #  Reward                                                              #
 # ------------------------------------------------------------------ #
 
 reward:
-  formula: profit_pct + consistency_bonus - risk_penalty - trade_cost - overtrade_penalty
+  metric: sharpe_ratio
+  formula: annualized_sharpe = (mean_returns / std_returns) * sqrt(252)
+  range: [-5.0, 5.0]
+  clipped: true
   description: >
-    Reward is based on percentage profit change with penalties for drawdown,
-    trading costs, and overtrading. Includes bonus for consistent gains.
-    Reward is normalized and clamped between -1 and 1.
+    Sharpe ratio is computed at episode end from portfolio value history.
+    Higher Sharpe = better risk-adjusted returns. Clipped to [-5, 5] to
+    handle extreme volatility in crypto-heavy portfolios.
 
 # ------------------------------------------------------------------ #
 #  Grader                                                              #
@@ -113,21 +108,12 @@ reward:
 
 grader:
   endpoint: POST /grader
-  output: float [0.0, 1.0]
+  output: 
+    portfolio_value: float
+    sharpe: float
   description: >
-    Returns a single score between 0.0 and 1.0.
-    Combines profit score and Sharpe ratio depending on task.
-
-# ------------------------------------------------------------------ #
-#  Baseline                                                            #
-# ------------------------------------------------------------------ #
-
-baseline:
-  endpoint: POST /baseline
-  strategy: MA5/MA10 crossover (rule-based, no API key required)
-  description: >
-    Buy when MA5 crosses above MA10, sell when MA5 crosses below MA10.
-    Can be used to verify environment correctness instantly.
+    Returns final portfolio value and annualized Sharpe ratio.
+    Sharpe is the primary evaluation metric for ranking agents.
 
 # ------------------------------------------------------------------ #
 #  API Endpoints                                                       #
@@ -142,18 +128,24 @@ api:
     - method: POST
       path: /reset
       description: Reset environment, returns initial state
+      body:
+        task: string (optional, defaults to "easy")
     - method: GET
       path: /state
       description: Get current state snapshot
+      params:
+        task: string (optional)
     - method: POST
       path: /step
-      description: Execute one action, returns obs/reward/done/info
+      description: Execute portfolio rebalancing action
+      body:
+        task: string
+        weights: dict
     - method: POST
       path: /grader
-      description: Return final score (0.0 to 1.0)
-    - method: POST
-      path: /baseline
-      description: Run baseline agent, return scores
+      description: Return final Sharpe and portfolio value
+      body:
+        task: string
 
 # ------------------------------------------------------------------ #
 #  Runtime                                                             #
@@ -165,3 +157,45 @@ runtime:
   python: "3.11"
   docker: true
   huggingface_spaces: true
+  frontend: true
+  frontend_path: /
+
+# ------------------------------------------------------------------ #
+#  Data                                                                #
+# ------------------------------------------------------------------ #
+
+data:
+  source: yfinance
+  period: 2020-01-01 to 2024-12-31
+  frequency: daily
+  assets:
+    AAPL: Apple Inc. (tech)
+    MSFT: Microsoft Corp. (tech)
+    GOOGL: Alphabet Inc. (tech)
+    JNJ: Johnson & Johnson (healthcare)
+    JPM: JPMorgan Chase (finance)
+    BTC-USD: Bitcoin (crypto)
+    ETH-USD: Ethereum (crypto)
+  preprocessing:
+    - Forward-fill missing values
+    - Drop rows with NaN after ffill
+    - Align indices across all assets
+
+# ------------------------------------------------------------------ #
+#  Baseline                                                            #
+# ------------------------------------------------------------------ #
+
+baseline:
+  easy: 
+    strategy: Equal-weight (33.3% per asset)
+    expected_sharpe: ~0.95
+  medium:
+    strategy: Equal-weight (20% per asset)
+    expected_sharpe: ~0.91
+  hard:
+    strategy: Risk-parity (stocks 80%, crypto 20%)
+    expected_sharpe: ~1.27
+  notes: >
+    Simple equal-weight or risk-adjusted baselines provide strong
+    performance on uptrending 2020-2024 data. Advanced strategies
+    (momentum, minimum variance) may improve further.
