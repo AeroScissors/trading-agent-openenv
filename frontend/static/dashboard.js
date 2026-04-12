@@ -256,8 +256,8 @@ function dashboard() {
         });
         const grade = await gradeRes.json();
         
-        // Use normalized score (0-1) instead of raw Sharpe
-        t.score  = grade.score ?? 0;  // Composite score (profit + sharpe, normalized)
+        // Use score if available, fallback to sharpe for compatibility
+        t.score  = grade.score ?? grade.sharpe ?? 0;
         t.profit = Math.round((grade.portfolio_value ?? 10000) - 10000);
 
         const scored = this.tasks.filter(x => x.score !== null);
