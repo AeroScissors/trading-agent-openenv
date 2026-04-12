@@ -1,240 +1,163 @@
 """
-inference.py — Trading-Agent-OpenEnv
-LLM-based agent using OpenAI client format.
-
-Required env vars:
-    API_BASE_URL  — LLM API base URL
-    MODEL_NAME    — model identifier
-    HF_TOKEN      — API key / Hugging Face token
-
-Usage:
-    python inference.py
+inference.py — Trading Agent OpenEnv
+Emits [START] / [STEP] / [END] logs as required by the OpenEnv validator.
+Uses an LLM (once per task) to allocate portfolio weights, then runs full episode.
 """
 
 import os
-import re
 import json
-import sys
 import requests
+from typing import List, Optional
 from openai import OpenAI
 
-# ------------------------------------------------------------------ #
-#  Config                                                             #
-# ------------------------------------------------------------------ #
+# ── Config ────────────────────────────────────────────────────────────────────
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN     = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "dummy")
+ENV_URL      = os.getenv("ENV_URL",      "http://localhost:7860")
 
-API_BASE_URL  = os.environ.get("API_BASE_URL",  "https://api-inference.huggingface.co/v1")
-MODEL_NAME    = os.environ.get("MODEL_NAME",    "meta-llama/Llama-3.3-70B-Instruct")
-HF_TOKEN      = os.environ.get("HF_TOKEN",      "")
+TASKS       = ["easy", "medium", "hard"]
+MAX_STEPS   = 500   # covers full ~420 trading-day episodes
+TEMPERATURE = 0.3
+MAX_TOKENS  = 256
 
-ENV_BASE_URL  = os.environ.get("ENV_BASE_URL",  "http://localhost:7860")
-
-TASKS         = ["easy", "medium", "hard"]
-MAX_STEPS     = {"easy": 249, "medium": 249, "hard": 363}
-LLM_EVERY_N   = 10
-TEMPERATURE   = 0.1
-MAX_TOKENS    = 64
-FALLBACK      = "HOLD"
-
-# ------------------------------------------------------------------ #
-#  OpenAI client                                                      #
-# ------------------------------------------------------------------ #
-
-client = OpenAI(
-    base_url=API_BASE_URL,
-    api_key=HF_TOKEN,
+SYSTEM_PROMPT = (
+    "You are a portfolio manager. Given asset prices, output ONLY a JSON object "
+    "mapping each symbol to an allocation weight (0.0-1.0). Weights must sum to ≤ 1.0. "
+    "Example: {\"AAPL\": 0.4, \"MSFT\": 0.3, \"GOOGL\": 0.3} "
+    "No markdown, no explanation. Just the JSON object."
 )
 
-# ------------------------------------------------------------------ #
-#  Prompts                                                            #
-# ------------------------------------------------------------------ #
+# ── Stdout logging ────────────────────────────────────────────────────────────
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
-SYSTEM_PROMPT = """You are a trading agent. You will receive the current market state and must decide to BUY, SELL, or HOLD.
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} "
+        f"done={str(done).lower()} error={error or 'null'}",
+        flush=True,
+    )
 
-Rules:
-- BUY: enter a long position when you expect price to rise
-- SELL: exit your position when you expect price to fall or to lock in profit
-- HOLD: do nothing
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} "
+        f"rewards={','.join(f'{r:.2f}' for r in rewards)}",
+        flush=True,
+    )
 
-Respond with ONLY one word: BUY, SELL, or HOLD. No explanation."""
-
-
-def build_user_prompt(task: str, step: int, state: dict, max_steps: int) -> str:
-    price    = state.get("current_price", 0)
-    cash     = state.get("cash", 0)
-    position = state.get("position", 0)
-    ma5      = state.get("ma5", 0)
-    ma10     = state.get("ma10", 0)
-    sharpe   = state.get("sharpe", 0)
-    portfolio = cash + position * price
-
-    return f"""Task: {task.upper()} | Step: {step}/{max_steps}
-
-Market State:
-- Current price : ${price:,.2f}
-- MA5           : ${ma5:,.2f}
-- MA10          : ${ma10:,.2f}
-- Sharpe ratio  : {sharpe:.4f}
-
-Portfolio:
-- Cash          : ${cash:,.2f}
-- Position      : {position:.4f} units
-- Portfolio val : ${portfolio:,.2f}
-
-What is your action? Reply with BUY, SELL, or HOLD only."""
-
-
-# ------------------------------------------------------------------ #
-#  LLM call                                                           #
-# ------------------------------------------------------------------ #
-
-def get_llm_action(task: str, step: int, state: dict, max_steps: int) -> str:
+# ── LLM: get weights once per task ───────────────────────────────────────────
+def get_weights(client: OpenAI, symbols: list, prices: dict) -> dict:
+    """Call LLM for weights. Falls back to equal weight on any error."""
+    n     = len(symbols)
+    equal = {s: round(1.0 / n, 4) for s in symbols}
     try:
-        completion = client.chat.completions.create(
+        prices_str = ", ".join(f"{s}=${prices.get(s, 0):.2f}" for s in symbols)
+        resp = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": build_user_prompt(task, step, state, max_steps)},
+                {"role": "user",   "content": f"Prices: {prices_str}. Allocate weights for max Sharpe ratio."},
             ],
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
-            stream=False,
         )
-        response = completion.choices[0].message.content or ""
-        response = response.strip().upper()
-        for word in re.split(r'\W+', response):
-            if word in ("BUY", "SELL", "HOLD"):
-                return word
-        return FALLBACK
+        text    = (resp.choices[0].message.content or "").strip()
+        text    = text.replace("```json", "").replace("```", "").strip()
+        weights = json.loads(text)
+        weights = {k: max(0.0, float(v)) for k, v in weights.items() if k in symbols}
+        if not weights:
+            return equal
+        total = sum(weights.values())
+        if total > 1.0:
+            weights = {k: v / total for k, v in weights.items()}
+        return weights
     except Exception as e:
-        print(f"  [LLM error] {e} — using FALLBACK ({FALLBACK})", flush=True)
-        return FALLBACK
+        print(f"[DEBUG] LLM error: {e}", flush=True)
+        return equal
 
-
-# ------------------------------------------------------------------ #
-#  Env API helpers                                                    #
-# ------------------------------------------------------------------ #
-
+# ── Env HTTP helpers ──────────────────────────────────────────────────────────
 def env_reset(task: str) -> dict:
-    r = requests.post(f"{ENV_BASE_URL}/reset", json={"task": task})
-    r.raise_for_status()
-    return r.json().get("initial_state", {})
-
-
-def env_step(task: str, action: str, quantity: float) -> dict:
-    r = requests.post(f"{ENV_BASE_URL}/step", json={
-        "task": task, "action": action, "quantity": quantity
-    })
+    r = requests.post(f"{ENV_URL}/reset",  json={"task": task}, timeout=30)
     r.raise_for_status()
     return r.json()
 
-
-def env_grader(task: str) -> dict:
-    r = requests.post(f"{ENV_BASE_URL}/grader", json={"task": task})
+def env_step(task: str, weights: dict) -> dict:
+    r = requests.post(f"{ENV_URL}/step",   json={"task": task, "weights": weights}, timeout=30)
     r.raise_for_status()
     return r.json()
 
+def env_grade(task: str) -> dict:
+    r = requests.post(f"{ENV_URL}/grader", json={"task": task}, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
-# ------------------------------------------------------------------ #
-#  Run agent for one task                                             #
-# ------------------------------------------------------------------ #
+# ── Single task episode ───────────────────────────────────────────────────────
+def run_task(task: str, client: OpenAI) -> float:
+    log_start(task=task, env="trading-agent-openenv", model=MODEL_NAME)
 
-def run_task(task: str) -> dict:
-    print(f"\n{'='*50}", flush=True)
-    print(f"Task: {task.upper()}", flush=True)
-    print(f"{'='*50}", flush=True)
+    rewards:     List[float] = []
+    steps_taken: int         = 0
+    score:       float       = 0.0
+    success:     bool        = False
 
-    state         = env_reset(task)
-    max_steps     = MAX_STEPS[task]
-    current_action = FALLBACK
-    step           = 0
-    done           = False
-    total_reward   = 0.0
-    steps_log      = []
+    try:
+        # 1. Reset
+        obs     = env_reset(task).get("observation", {})
+        symbols = list(obs.get("prices", {}).keys())
+        prices  = obs.get("prices", {})
+        done    = False
 
-    while not done:
-        step += 1
+        # 2. Ask LLM once for weights
+        weights = get_weights(client, symbols, prices)
+        action_str = json.dumps(weights, separators=(",", ":"))
 
-        if step == 1 or step % LLM_EVERY_N == 0:
-            current_action = get_llm_action(task, step, state, max_steps)
+        # 3. Step loop — reuse same weights for the full episode (fast)
+        for step in range(1, MAX_STEPS + 1):
+            if done:
+                break
 
-        price    = state.get("current_price", 1)
-        cash     = state.get("cash", 0)
-        position = state.get("position", 0)
+            result     = env_step(task, weights)
+            obs        = result.get("observation", {})
+            reward     = float(result.get("reward", 0.0))
+            done       = bool(result.get("done", False))
+            prices     = obs.get("prices", prices)
+            steps_taken = step
 
-        if current_action == "BUY":
-            quantity = round((cash * 0.95) / max(price, 1e-8), 4)
-        elif current_action == "SELL":
-            quantity = round(position, 4)
-        else:
-            quantity = 0.0
+            rewards.append(reward)
+            log_step(step=step, action=action_str, reward=reward, done=done, error=None)
 
-        result        = env_step(task, current_action, quantity)
-        done          = result.get("done", False)
-        state         = result.get("observation", {})
-        reward        = result.get("reward", 0.0)
-        total_reward += reward
+        # 4. Grade
+        try:
+            grade   = env_grade(task)
+            score   = float(grade.get("score", 0.0))
+            score   = min(max(score, 0.0), 1.0)
+            success = score > 0.0
+        except Exception as e:
+            print(f"[DEBUG] Grader error: {e}", flush=True)
+            score   = 0.0
+            success = False
 
-        portfolio = state.get("cash", 0) + state.get("position", 0) * state.get("current_price", 0)
-        steps_log.append({
-            "step": step,
-            "action": current_action,
-            "reward": round(reward, 6),
-            "portfolio": round(portfolio, 2),
-        })
+    except Exception as e:
+        print(f"[DEBUG] Task {task} failed: {e}", flush=True)
 
-        if step % 50 == 0 or done:
-            print(f"  Step {step:3d} | {current_action:4s} | reward={reward:+.4f} | portfolio=${portfolio:,.2f}", flush=True)
+    finally:
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
-    grade = env_grader(task)
-    print(f"\n  Score  : {grade['score']}", flush=True)
-    print(f"  Profit : ${grade['profit']:,.2f}", flush=True)
-    print(f"  Reward : {total_reward:.4f}", flush=True)
+    return score
 
-    # structured output block
-    print(f"[START] task={task}", flush=True)
-    for s in steps_log:
-        print(f"[STEP] step={s['step']} action={s['action']} reward={s['reward']} portfolio={s['portfolio']}", flush=True)
-    print(f"[END] task={task} score={grade['score']} steps={step}", flush=True)
-
-    return grade
-
-
-# ------------------------------------------------------------------ #
-#  Main                                                               #
-# ------------------------------------------------------------------ #
-
+# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    print("=" * 50, flush=True)
-    print("TRADING-AGENT-OPENENV — LLM INFERENCE", flush=True)
-    print(f"Model : {MODEL_NAME}", flush=True)
-    print(f"API   : {API_BASE_URL}", flush=True)
-    print(f"Env   : {ENV_BASE_URL}", flush=True)
-    print("=" * 50, flush=True)
+    client     = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    all_scores = []
 
-    if not HF_TOKEN:
-        print("\n⚠️  WARNING: HF_TOKEN not set. LLM calls may fail.", flush=True)
-
-    results = {}
     for task in TASKS:
-        results[task] = run_task(task)
+        score = run_task(task, client)
+        all_scores.append(score)
+        print(f"[DEBUG] {task} score: {score:.4f}", flush=True)
 
-    print(f"\n{'='*50}", flush=True)
-    print("FINAL RESULTS", flush=True)
-    print(f"{'='*50}", flush=True)
-    for task, result in results.items():
-        print(f"  {task:6s} : {result['score']:.4f}", flush=True)
-
-    avg = sum(r["score"] for r in results.values()) / len(results)
-    print(f"\n  AVG    : {avg:.4f}", flush=True)
-    print(f"{'='*50}", flush=True)
-
-    output = {
-        "scores": {t: r["score"] for t, r in results.items()},
-        "average": round(avg, 4),
-        "model": MODEL_NAME,
-    }
-    print(f"\nJSON output:\n{json.dumps(output, indent=2)}", flush=True)
-
+    avg = sum(all_scores) / len(all_scores) if all_scores else 0.0
+    print(f"[DEBUG] Average score: {avg:.4f}", flush=True)
 
 if __name__ == "__main__":
     main()
