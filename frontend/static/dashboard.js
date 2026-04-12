@@ -80,6 +80,24 @@ function createChart(color, memory) {
   const ctx = document.getElementById('priceChart');
   if (!ctx) return null;
 
+  // Glow plugin — soft shadow under the line for cyberpunk look
+  const glowPlugin = {
+    id: 'glowLine',
+    beforeDatasetsDraw(chart) {
+      chart.ctx.save();
+      chart.ctx.shadowBlur = 18;
+      chart.ctx.shadowColor = color;
+    },
+    afterDatasetsDraw(chart) {
+      chart.ctx.restore();
+    },
+  };
+
+  // Double-click reset — attach directly to canvas so it always works
+  if (ctx._zoomResetHandler) ctx.removeEventListener('dblclick', ctx._zoomResetHandler);
+  ctx._zoomResetHandler = () => { if (_chart) _chart.resetZoom(); };
+  ctx.addEventListener('dblclick', ctx._zoomResetHandler);
+
   _chart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -96,6 +114,7 @@ function createChart(color, memory) {
         },
       ],
     },
+    plugins: [glowPlugin],
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -106,7 +125,6 @@ function createChart(color, memory) {
           pan: {
             enabled: true,
             mode: 'x',
-            cursor: 'grab',
           },
           zoom: {
             wheel: { enabled: true, speed: 0.1 },
@@ -138,6 +156,7 @@ function dashboard() {
     apiOnline: false,
     activeTask: 'easy',
     running: false,
+    _stopRequested: false,
     progress: 0,
     avgScore: null,
     currentAllocation: [],
@@ -150,6 +169,10 @@ function dashboard() {
 
     getTask(id) {
       return this.tasks.find(t => t.id === id);
+    },
+
+    stopAgent() {
+      if (this.running) this._stopRequested = true;
     },
 
     async init() {
@@ -174,6 +197,7 @@ function dashboard() {
     async runAgent() {
       if (this.running) return;
       this.running  = true;
+      this._stopRequested = false;
       this.progress = 0;
 
       const taskId = this.activeTask;
@@ -207,6 +231,7 @@ function dashboard() {
         const STEP_INTERVAL = 3; // Balance of speed + visual quality
         
         while (!done && step < maxSteps) {
+          if (this._stopRequested) { done = true; break; }
           step += STEP_INTERVAL;
 
           // Get portfolio weights from strategy
@@ -248,7 +273,8 @@ function dashboard() {
 
         t.steps = step;
 
-        // 3. GRADER
+        // 3. GRADER (skip if user stopped early)
+        if (!this._stopRequested) {
         const gradeRes = await fetch(`${BASE}/grader`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -262,6 +288,7 @@ function dashboard() {
 
         const scored = this.tasks.filter(x => x.score !== null);
         this.avgScore = scored.reduce((a, x) => a + x.score, 0) / scored.length;
+        }
 
       } catch (e) {
         console.error('Agent run failed:', e);

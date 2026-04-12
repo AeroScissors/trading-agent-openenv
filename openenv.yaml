@@ -1,3 +1,18 @@
+---
+title: Trading Agent OpenEnv
+emoji: 📈
+colorFrom: purple
+colorTo: cyan
+sdk: docker
+pinned: false
+app_port: 7860
+base_path: /
+tags:
+  - openenv
+  - trading
+  - reinforcement-learning
+---
+
 name: trading-agent-openenv
 version: "2.0.0"
 description: >
@@ -108,12 +123,13 @@ reward:
 
 grader:
   endpoint: POST /grader
-  output: 
+  output:
     portfolio_value: float
     sharpe: float
+    score: float
   description: >
-    Returns final portfolio value and annualized Sharpe ratio.
-    Sharpe is the primary evaluation metric for ranking agents.
+    Returns final portfolio value, annualized Sharpe ratio, and normalized
+    score (0-1). Sharpe is the primary evaluation metric for ranking agents.
 
 # ------------------------------------------------------------------ #
 #  API Endpoints                                                       #
@@ -143,7 +159,7 @@ api:
         weights: dict
     - method: POST
       path: /grader
-      description: Return final Sharpe and portfolio value
+      description: Return final Sharpe, score, and portfolio value
       body:
         task: string
 
@@ -186,7 +202,7 @@ data:
 # ------------------------------------------------------------------ #
 
 baseline:
-  easy: 
+  easy:
     strategy: Equal-weight (33.3% per asset)
     expected_sharpe: ~0.95
   medium:

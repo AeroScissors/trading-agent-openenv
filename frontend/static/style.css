@@ -185,7 +185,18 @@ body::after {
   color: var(--muted);
   letter-spacing: 0.06em;
 }
-.profit { color: var(--green); }
+.profit {
+  color: #00ff88;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-shadow:
+    0 0 6px #00ff88,
+    0 0 14px #00ff8870,
+    0 0 28px #00ff8840;
+  filter: brightness(1.2);
+}
 
 /* ── CHART ───────────────────────────────────────────────────────────── */
 .chart-section {
@@ -254,7 +265,8 @@ body::after {
   padding: 10px 14px;
   position: relative;
 }
-.chart-wrap canvas { width: 100% !important; height: 100% !important; }
+.chart-wrap canvas { width: 100% !important; height: 100% !important; cursor: crosshair; }
+.chart-wrap canvas:active { cursor: grabbing; }
 
 .legend {
   display: flex;
@@ -408,6 +420,36 @@ body::after {
 }
 .run-btn:active:not(:disabled) { transform: scale(0.97); }
 .run-btn:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
+
+/* stop button */
+.stop-btn {
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--red);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 9px 14px;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 8px var(--red);
+  box-shadow: 0 0 10px #ff333322, inset 0 0 10px #ff333310;
+  transition: all 0.15s;
+  white-space: nowrap;
+  border-left: none;
+}
+.stop-btn:hover:not(:disabled) {
+  background: #ff333318;
+  box-shadow: 0 0 20px #ff333344, inset 0 0 20px #ff333320;
+  transform: scale(1.02);
+}
+.stop-btn:active:not(:disabled) { transform: scale(0.97); }
+.stop-btn:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+  box-shadow: none;
+  text-shadow: none;
+}
 
 /* progress */
 .progress-wrap {
