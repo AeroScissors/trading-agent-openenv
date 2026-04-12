@@ -143,9 +143,18 @@ def take_step(req: StepRequest):
 def grade_episode(req: GraderRequest):
     env = _get_env(req.task)
     result = env.final_score()
+    
+    # Normalize Sharpe to 0-1 range
+    # Target Sharpe values from openenv.yaml: Easy=1.0, Medium=0.9, Hard=1.2
+    sharpe_targets = {"easy": 1.0, "medium": 0.9, "hard": 1.2}
+    target = sharpe_targets.get(req.task, 1.0)
+    
+    # Normalized score: min(sharpe / target, 1.0)
+    normalized_score = min(1.0, max(0.0, result["sharpe"] / target))
 
     return {
         "task": req.task,
         "portfolio_value": result["portfolio_value"],
-        "sharpe": result["sharpe"]
+        "sharpe": result["sharpe"],  # Raw Sharpe (for reference)
+        "score": round(normalized_score, 4)  # Normalized 0-1 score
     }
