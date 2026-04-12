@@ -203,9 +203,11 @@ function dashboard() {
         let step = 0;
         let done = false;
 
-        // 2. STEP LOOP
+        // 2. STEP LOOP (sample every 10th step for speed)
+        const STEP_INTERVAL = 10; // Only execute every 10th step
+        
         while (!done && step < maxSteps) {
-          step++;
+          step += STEP_INTERVAL;
 
           // Get portfolio weights from strategy
           const weights = STRATEGIES[taskId].getWeights(step, { symbols, prices: obs.prices });
@@ -226,8 +228,8 @@ function dashboard() {
           mem.labels.push(step);
           mem.values.push(portfolioValue);
 
-          // Update chart every 50 steps (not every step - much faster!)
-          if (step % 50 === 0 || done) {
+          // Update chart every 5 samples
+          if (mem.labels.length % 5 === 0 || done) {
             chart.data.labels = [...mem.labels];
             chart.data.datasets[0].data = [...mem.values];
             chart.update('none');
@@ -242,11 +244,6 @@ function dashboard() {
           mem.allocation = allocArray;
 
           this.progress = Math.min(99, Math.round((step / maxSteps) * 100));
-          
-          // Only delay every 10 steps to speed up
-          if (step % 10 === 0) {
-            await new Promise(r => setTimeout(r, 1));
-          }
         }
 
         t.steps = step;
