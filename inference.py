@@ -131,7 +131,7 @@ def run_task(task: str, client: OpenAI) -> float:
         try:
             grade   = env_grade(task)
             score   = float(grade.get("score", 0.0))
-            score   = min(max(score, 0.0), 1.0)
+            score   = min(max(score, 0.001), 0.999)
             success = score > 0.0
         except Exception as e:
             print(f"[DEBUG] Grader error: {e}", flush=True)

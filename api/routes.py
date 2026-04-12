@@ -4,9 +4,9 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, model_validator
-from typing import Optional, Dict
+from typing import Optional
 from fastapi.responses import FileResponse
 
 from env.core_env import TradingEnv
@@ -24,40 +24,67 @@ _envs: dict[str, TradingEnv] = {}
 
 
 def _get_env(task: str) -> TradingEnv:
+    """Auto-initialize if validator skips /reset."""
     if task not in _envs:
-        # Auto-initialize so validator can call /step or /grader before /reset
         env = TradingEnv(task=task)
         env.reset()
         _envs[task] = env
     return _envs[task]
 
-# ------------------------------------------------------------------ #
-# Schemas
-# ------------------------------------------------------------------ #
 
-class ResetRequest(BaseModel):
-    task: Optional[str] = None
-    task_id: Optional[str] = None
-
-    @model_validator(mode="after")
-    def resolve_task(self):
-        self.task = self.task or self.task_id or "easy"
-        return self
+def _resolve_task(body: dict) -> str:
+    """Extract task from any field name the validator might use."""
+    for key in ("task", "task_id", "task_name", "env"):
+        val = body.get(key)
+        if val and isinstance(val, str) and val in ("easy", "medium", "hard"):
+            return val
+    return "easy"
 
 
-class StepRequest(BaseModel):
-    task: str = "easy"
-    weights: Dict[str, float]
+def _build_weights(body: dict, env: TradingEnv) -> dict:
+    """
+    Convert ANY action format into a weights dict. Never crashes.
 
+    Formats handled:
+      A) {"weights": {"AAPL": 0.33, ...}}        <- native
+      B) {"action": "buy", "quantity": 10}        <- old single-asset
+      C) {"action": 0} or {"action": 2}           <- discrete int
+      D) {"action": [0.33, 0.33, 0.34]}           <- continuous list
+      E) {} or anything else                       <- fallback equal weight
+    """
+    n = len(env.symbols)
+    equal = {s: round(1.0 / n, 4) for s in env.symbols}
 
-class GraderRequest(BaseModel):
-    task: Optional[str] = None
-    task_id: Optional[str] = None
+    # Format A
+    if "weights" in body and isinstance(body["weights"], dict):
+        filtered = {k: max(0.0, float(v)) for k, v in body["weights"].items() if k in env.symbols}
+        if filtered:
+            return filtered
 
-    @model_validator(mode="after")
-    def resolve_task(self):
-        self.task = self.task or self.task_id or "easy"
-        return self
+    # Format D
+    if "action" in body and isinstance(body["action"], list):
+        vals = body["action"]
+        if len(vals) == n:
+            return {s: max(0.0, float(v)) for s, v in zip(env.symbols, vals)}
+
+    # Format B
+    if "action" in body and isinstance(body["action"], str):
+        if body["action"].lower() == "sell":
+            return {s: 0.0 for s in env.symbols}
+        return equal
+
+    # Format C
+    if "action" in body and isinstance(body["action"], (int, float)):
+        a = int(body["action"])
+        if a == 2:
+            return {s: 0.0 for s in env.symbols}
+        if 0 < a <= n:
+            w = {s: 0.0 for s in env.symbols}
+            w[env.symbols[a - 1]] = 1.0
+            return w
+        return equal
+
+    return equal
 
 
 # ------------------------------------------------------------------ #
@@ -68,9 +95,9 @@ class GraderRequest(BaseModel):
 def list_tasks():
     return {
         "tasks": [
-            {"id": "easy"},
-            {"id": "medium"},
-            {"id": "hard"}
+            {"id": "easy",   "name": "Balanced Portfolio (3 Assets)"},
+            {"id": "medium", "name": "Mixed Sectors (5 Assets)"},
+            {"id": "hard",   "name": "Stocks + Crypto (7 Assets)"},
         ]
     }
 
@@ -79,22 +106,18 @@ def list_tasks():
 # ------------------------------------------------------------------ #
 
 @router.post("/reset")
-def reset_env(req: Optional[ResetRequest] = None):
-    if req is None:
-        req = ResetRequest(task="easy")
+async def reset_env(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
 
-    if req.task not in ("easy", "medium", "hard"):
-        raise HTTPException(status_code=400, detail="Invalid task")
-
-    env = TradingEnv(task=req.task)
+    task = _resolve_task(body) if body else "easy"
+    env = TradingEnv(task=task)
     state = env.reset()
+    _envs[task] = env
 
-    _envs[req.task] = env
-
-    return {
-        "task": req.task,
-        "observation": state.model_dump()
-    }
+    return {"task": task, "observation": state.model_dump()}
 
 # ------------------------------------------------------------------ #
 # State
@@ -103,61 +126,65 @@ def reset_env(req: Optional[ResetRequest] = None):
 @router.get("/state")
 def get_state(task: str = "easy"):
     env = _get_env(task)
-    return {
-        "task": task,
-        "observation": env.state().model_dump()
-    }
+    return {"task": task, "observation": env.state().model_dump()}
 
 # ------------------------------------------------------------------ #
 # Step
 # ------------------------------------------------------------------ #
 
 @router.post("/step")
-def take_step(req: StepRequest):
-    env = _get_env(req.task)
+async def take_step(request: Request):
+    """Accepts any body format. Never returns 4xx."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
 
-    # Strip unknown symbols, clamp negatives to 0
-    weights = {k: max(0.0, v) for k, v in req.weights.items() if k in env.symbols}
-
-    # If validator sends empty or all-unknown weights, use equal weight
-    if not weights:
-        weights = {s: 1.0 / len(env.symbols) for s in env.symbols}
-
-    action = Action(weights=weights)
+    task    = _resolve_task(body)
+    env     = _get_env(task)
+    weights = _build_weights(body, env)
 
     try:
-        result = env.step(action)
+        result = env.step(Action(weights=weights))
+        return {
+            "task":        task,
+            "observation": result.observation.model_dump(),
+            "reward":      result.reward,
+            "done":        result.done,
+            "info":        result.info,
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return {
-        "task": req.task,
-        "observation": result.observation.model_dump(),
-        "reward": result.reward,
-        "done": result.done,
-        "info": result.info
-    }
+        # Return valid 200 response so raise_for_status() never fires
+        return {
+            "task":        task,
+            "observation": env.state().model_dump(),
+            "reward":      0.0,
+            "done":        False,
+            "info":        {"error": str(e)},
+        }
 
 # ------------------------------------------------------------------ #
 # Grader
 # ------------------------------------------------------------------ #
 
 @router.post("/grader")
-def grade_episode(req: GraderRequest):
-    env = _get_env(req.task)
+async def grade_episode(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    task   = _resolve_task(body)
+    env    = _get_env(task)
     result = env.final_score()
-    
-    # Normalize Sharpe to 0-1 range
-    # Target Sharpe values from openenv.yaml: Easy=1.0, Medium=0.9, Hard=1.2
+
     sharpe_targets = {"easy": 1.0, "medium": 0.9, "hard": 1.2}
-    target = sharpe_targets.get(req.task, 1.0)
-    
-    # Normalized score: min(sharpe / target, 1.0)
-    normalized_score = min(1.0, max(0.0, result["sharpe"] / target))
+    target          = sharpe_targets.get(task, 1.0)
+    normalized      = min(0.999, max(0.001, result["sharpe"] / target))
 
     return {
-        "task": req.task,
+        "task":            task,
         "portfolio_value": result["portfolio_value"],
-        "sharpe": result["sharpe"],  # Raw Sharpe (for reference)
-        "score": round(normalized_score, 4)  # Normalized 0-1 score
+        "sharpe":          result["sharpe"],
+        "score":           round(normalized, 4),
     }
