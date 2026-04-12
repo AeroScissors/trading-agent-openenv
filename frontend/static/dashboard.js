@@ -203,8 +203,8 @@ function dashboard() {
         let step = 0;
         let done = false;
 
-        // 2. STEP LOOP (sample every 10th step for speed)
-        const STEP_INTERVAL = 10; // Only execute every 10th step
+        // 2. STEP LOOP (sample every 6th step for balance of speed + smoothness)
+        const STEP_INTERVAL = 6; // ~210 steps total (was 1256)
         
         while (!done && step < maxSteps) {
           step += STEP_INTERVAL;
